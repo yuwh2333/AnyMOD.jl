@@ -114,7 +114,7 @@ sMaxDiff_tup = tuple()
 Points_x = Dict{Tuple{Int64,Int64},Vector{Dict}}() #Input and Output of each subproblem of previous iterations are documented
 Points_y = Dict{Tuple{Int64,Int64}, Vector{Float64}}()
 cut_group = collect(keys(benders_obj.sub))
-point_cur = Dict{Tuple{Int64,Int64},Dict}()
+
 while true
 
 	produceMessage(benders_obj.report.mod.options, benders_obj.report.mod.report, 1, " - Started iteration $(benders_obj.itr.cnt.i)", testErr = false, printErr = false)
@@ -226,7 +226,7 @@ while true
 	# add number of iteration and add to overall dataframe
 	cutVar_df[!,:i] .= benders_obj.itr.cnt.i
 	append!(trackSub_df, cutVar_df)
-    push!(track_itr, cutVar_df)
+    push!(trackSub_itr, cutVar_df)
 
     #define specific cuts
     filter!(x -> x[1] in cut_group, benders_obj.cuts)
@@ -234,7 +234,7 @@ while true
 
 	if rtn_boo break end
 	benders_obj.itr.cnt.i = benders_obj.itr.cnt.i + 1
-
+    
 end
 
 #endregion

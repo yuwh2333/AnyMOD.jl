@@ -14,7 +14,7 @@ else
     t_int = parse(Int,ARGS[2]) # number of threads
 end
 
-surroSelect_sym = Symbol(par_df[id_int,:surroSelect]) # can be :n-1, :IDW
+surroSelect_sym = Symbol(par_df[id_int,:surroSelect]) # can be :IDW
 scr_int = par_df[id_int,:scr] # number of scenarios
 res_int = par_df[id_int,:h] # number of hours
 gap = 0.01
@@ -56,7 +56,7 @@ nearOptSetup_obj = nothing # cost threshold to keep solution, lls threshold to k
 #region # * options for problem
 
 # ! general problem settings
-name_str =string("scr",scr_int, "_", res_int,"h_", cutSelect_sym,"_gap",gap)
+name_str =string("scr",scr_int, "_", res_int,"h_", surroSelect_sym,"_gap",gap)
 # name, temporal resolution, level of foresight, superordinate dispatch level, length of steps between investment years
 info_ntup = (name = name_str, frs = 0, supTsLvl = 1, shortExp = 10) 
 
@@ -109,12 +109,12 @@ benders_obj = bendersObj(info_ntup, inputFolder_ntup, scale_dic, algSetup_obj, s
 #region # * iteration algorithm
 
 # dataframe to track approximation of sub-problems
-trackSub_df = DataFrame(i = Int[], Ts_dis = Int[], scr = Int[], actCost = Float64[], estCost = Float64[], diff = Float64[], timeSub = Millisecond[], maxDiff = Bool[],sur = Float64[], solved = Bool[])
+trackSub_df = DataFrame(i = Int[], Ts_dis = Int[], scr = Int[], actCost = Float64[], estCost = Float64[], diff = Float64[], timeSub = Millisecond[], maxDiff = Bool[],sur = Float64[], ToSolve = Bool[])
 sMaxDiff_tup = tuple()
 Points_x = Dict{Tuple{Int64,Int64},Vector{Dict}}() #Input of each subproblem of previous iterations are documented
 Points_y = Dict{Tuple{Int64,Int64}, Vector{Float64}}() #output of each subproblem of previous iterations
 cut_group = collect(keys(benders_obj.sub)) 
-trackSub_itr = Vector{DataFrame}()
+
 while true
 
 	produceMessage(benders_obj.report.mod.options, benders_obj.report.mod.report, 1, " - Started iteration $(benders_obj.itr.cnt.i)", testErr = false, printErr = false)
@@ -209,30 +209,27 @@ while true
             if surroSelect_sym == :IDW
                 row.sur = IDW.computeIDW(Points_x[(row.Ts_dis, row.scr)], Points_y[(row.Ts_dis, row.scr)], input)
             end
-            if surroSelect_sym == :n-1
-                temp_df = track_itr[length(trackSub_itr)]
-                row.sur = temp_df[(temp_df.Ts_dis .== row.Ts_dis) .& (temp_df.scr .== row.scr), :sur]
-            end
         end
     end
     cutVar_df[!,:diff] = cutVar_df[!,:sur]  .- cutVar_df[!,:estCost]
-
+    for row in eachrow(cutVar_df)
+        row.diff = abs(row.diff)
+    end
 	# find case with biggest difference
 	sMaxDiff_tup = tuple((cutVar_df[findall(maximum(cutVar_df[!,:diff]) .== cutVar_df[!,:diff]), :] |> (z -> map(x -> z[1,x], [:Ts_dis, :scr])))...)
 	cutVar_df[!,:maxDiff] = map(x -> sMaxDiff_tup == (x.Ts_dis, x.scr), eachrow(cutVar_df))
-    cutVar_df[!,:solved] = map(x -> (x.Ts_dis,x.scr) in cut_group, eachrow(cutVar_df))
+    
     #define cut group
     empty!(cut_group)
-    for row in eachrow(cutVar_df)
-        if row.diff<-1 push!(cut_group, (row.Ts_dis,row.scr)) end
-    end
+    #for row in eachrow(cutVar_df)
+    #    if row.diff<-1 push!(cut_group, (row.Ts_dis,row.scr)) end
+    #end
     push!(cut_group, sMaxDiff_tup)
-    
+    cutVar_df[!,:ToSolve] = map(x -> (x.Ts_dis,x.scr) in cut_group, eachrow(cutVar_df))
 
 	# add number of iteration and add to overall dataframe
 	cutVar_df[!,:i] .= benders_obj.itr.cnt.i
 	append!(trackSub_df, cutVar_df)
-    push!(trackSub_itr, cutVar_df)
 
     #define specific cuts
     filter!(x -> x[1] in cut_group, benders_obj.cuts)
@@ -240,7 +237,10 @@ while true
 
 	if rtn_boo break end
 	benders_obj.itr.cnt.i = benders_obj.itr.cnt.i + 1
-
+    #report trackSub_df
+    if benders_obj.itr.cnt.i % 10 == 0 
+        CSV.write(benders_obj.report.mod.options.outDir * "/trackingSub_$(benders_obj.info.name).csv", trackSub_df)
+    end
 end
 
 #endregion
@@ -252,4 +252,4 @@ trackSub_df[!,:run] .= benders_obj.info.name
 
 CSV.write(benders_obj.report.mod.options.outDir * "/iterationBenders_$(benders_obj.info.name).csv", benders_obj.report.itr)
 CSV.write(benders_obj.report.mod.options.outDir * "/trackingSub_$(benders_obj.info.name).csv", trackSub_df)
-CSV.write(benders_obj.report.mod.options.outDir * "/trackingCapa_$(benders_obj.info.name).csv", trackCapa_df)
+#CSV.write(benders_obj.report.mod.options.outDir * "/trackingCapa_$(benders_obj.info.name).csv", trackCapa_df)

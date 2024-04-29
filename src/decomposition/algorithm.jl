@@ -1123,7 +1123,6 @@ function reportBenders!(benders_obj::bendersObj, resData_obj::resData, elpTop_ti
 	if itr_obj.cnt.i%benders_obj.algOpt.reportFreq == 0 
 		CSV.write(report_obj.mod.options.outDir * "/iterationBenders_$(benders_obj.info.name).csv", report_obj.itr)
 		if !isnothing(benders_obj.nearOpt.setup) CSV.write(report_obj.mod.options.outDir * "/nearOptSol_$(benders_obj.info.name).csv", report_obj.nearOpt) end
-		CSV.write(report_obj.mod.options.outDir * "/trackingSub_$(benders_obj.info.name).csv", report_obj.itr)
 	end
 
 	#endregion

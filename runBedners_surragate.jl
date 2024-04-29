@@ -196,9 +196,9 @@ while true
     cutVar_df[!,:solved] = map(x -> (x.Ts_dis,x.scr) in cut_group, eachrow(cutVar_df))
     #define cut group
     empty!(cut_group)
-    for row in eachrow(cutVar_df)
-        if row.diff<-1 push!(cut_group, (row.Ts_dis,row.scr)) end
-    end
+    #for row in eachrow(cutVar_df)
+    #    if row.diff<-1 push!(cut_group, (row.Ts_dis,row.scr)) end
+    #end
     push!(cut_group, sMaxDiff_tup)
     
 
