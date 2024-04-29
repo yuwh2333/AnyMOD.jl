@@ -1,8 +1,10 @@
 using AnyMOD, Gurobi, CSV, YAML
+include("./IDW.jl")
+
 
 
 # read-in of input options
-par_df = CSV.read("settings.csv",DataFrame)
+par_df = CSV.read("settings_surro.csv",DataFrame)
 
 if isempty(ARGS)
     id_int = 1
@@ -12,7 +14,7 @@ else
     t_int = parse(Int,ARGS[2]) # number of threads
 end
 
-cutSelect_sym = Symbol(par_df[id_int,:cutSelect]) # can be :all, :maxDiff, or :rnd new:sur--use previous actual cost as surrogates
+surroSelect_sym = Symbol(par_df[id_int,:surroSelect]) # can be :n-1, :IDW
 scr_int = par_df[id_int,:scr] # number of scenarios
 res_int = par_df[id_int,:h] # number of hours
 gap = 0.01
@@ -107,10 +109,12 @@ benders_obj = bendersObj(info_ntup, inputFolder_ntup, scale_dic, algSetup_obj, s
 #region # * iteration algorithm
 
 # dataframe to track approximation of sub-problems
-trackSub_df = DataFrame(i = Int[], Ts_dis = Int[], scr = Int[], actCost = Float64[], estCost = Float64[], diff = Float64[], timeSub = Millisecond[], maxDiff = Bool[])
+trackSub_df = DataFrame(i = Int[], Ts_dis = Int[], scr = Int[], actCost = Float64[], estCost = Float64[], diff = Float64[], timeSub = Millisecond[], maxDiff = Bool[],sur = Float64[], solved = Bool[])
 sMaxDiff_tup = tuple()
-trackCapa_df =DataFrame(timestep = String[], region = String[], system = String[], id = String[], variable = Symbol[], value = Float64[], i = Int[])
-
+Points_x = Dict{Tuple{Int64,Int64},Vector{Dict}}() #Input of each subproblem of previous iterations are documented
+Points_y = Dict{Tuple{Int64,Int64}, Vector{Float64}}() #output of each subproblem of previous iterations
+cut_group = collect(keys(benders_obj.sub)) 
+trackSub_itr = Vector{DataFrame}()
 while true
 
 	produceMessage(benders_obj.report.mod.options, benders_obj.report.mod.report, 1, " - Started iteration $(benders_obj.itr.cnt.i)", testErr = false, printErr = false)
@@ -126,28 +130,6 @@ while true
 	timeSub_dic = Dict{Tuple{Int64,Int64},Millisecond}()
 	lss_dic = Dict{Tuple{Int64,Int64},Float64}()
 
-	newRes_df = DataFrame(timestep = String[], region = String[], system = String[], id = String[], variable = Symbol[], value = Float64[])
-	#compute tracking dataframe for technology capacities
-	for sys in (:tech, :exc)
-		for sSym in keys(resData_obj.capa[sys]), capaSym in keys(resData_obj.capa[sys][sSym])
-			# get capacity dataframe
-			capa_df = printObject(resData_obj.capa[sys][sSym][capaSym], benders_obj.top, rtnDf = (:csvDf,))
-			# merge into common format
-			if capaSym != :capaExc
-				capa_df = rename(select(capa_df,Not([:timestep_superordinate_expansion])), :timestep_superordinate_dispatch => :timestep, :region_expansion => :region, :technology => :system)
-			else
-				capa_df[!,:region] = capa_df[!,:region_from] .* " - " .* capa_df[!,:region_to]
-				capa_df = rename(select(capa_df,Not([:timestep_superordinate_expansion,:region_from,:region_to,:directed])), :timestep_superordinate_dispatch => :timestep, :exchange => :system)
-			end
-			if capaSym in (:capaConv, :capaExc) capa_df[!,:id] .= "" end
-			capa_df[!,:variable] .= capaSym
-			# add to all capacities
-			append!(newRes_df, capa_df)			
-		end
-		newRes_df[!,:i] .= benders_obj.itr.cnt.i
-		append!(trackCapa_df, newRes_df)
-	end
-
 	if benders_obj.algOpt.dist futData_dic = Dict{Tuple{Int64,Int64},Future}() end
 	for (id,s) in enumerate(collect(keys(benders_obj.sub)))
 		if benders_obj.algOpt.dist # distributed case
@@ -157,37 +139,6 @@ while true
 		end		
 	end
 	
-	#print objective value
-	push!(trackCapa_df, (timestep = "none", region = "none", system = "none", id = "none", variable = :objectiveValue, value = cutData_dic[(1,1)].objVal, i = benders_obj.itr.cnt.i))
-	
-	#print the tracking data in this iteration
-
-	newRes_df = DataFrame(timestep = String[], region = String[], system = String[], id = String[], variable = Symbol[], value = Float64[])
-	#compute tracking dataframe for technology capacities
-	for sys in (:tech, :exc)
-		for sSym in keys(cutData_dic[(1,1)].capa[sys]), capaSym in keys(cutData_dic[(1,1)].capa[sys][sSym])
-			# get capacity dataframe
-			capa_df = printObject(cutData_dic[(1,1)].capa[sys][sSym][capaSym], benders_obj.top, rtnDf = (:csvDf,))
-			# merge into common format
-			if capaSym != :capaExc
-				capa_df = rename(select(capa_df,Not([:timestep_superordinate_expansion])), :timestep_superordinate_dispatch => :timestep, :region_expansion => :region, :technology => :system)
-			else
-				capa_df[!,:region] = capa_df[!,:region_from] .* " - " .* capa_df[!,:region_to]
-				capa_df = rename(select(capa_df,Not([:timestep_superordinate_expansion,:region_from,:region_to,:directed])), :timestep_superordinate_dispatch => :timestep, :exchange => :system)
-			end
-			if capaSym in (:capaConv, :capaExc) capa_df[!,:id] .= "" end
-			select!(capa_df, Not([:value]))
-			capa_df = rename(capa_df, :dual => :value)
-			capa_df[!,:variable] .= Symbol(capaSym,:Dual)
-			# add to all capacities
-			append!(newRes_df, capa_df)			
-		end
-		newRes_df[!,:i] .= benders_obj.itr.cnt.i
-		append!(trackCapa_df, newRes_df)
-	end
-
-
-
 	# get the estimated cost from top-problem (must be before running top problem again without stabilization!)
 	cutVar_df = copy(benders_obj.top.parts.obj.var[:cut]) 
 	cutVar_df[!,:estCost] = value.(cutVar_df)[!,:var]
@@ -205,6 +156,7 @@ while true
 		end
 	end
 
+
 	#endregion
 
 	#region # * analyse results and update refinements
@@ -220,25 +172,71 @@ while true
 	
 	#endregion
 
+     #save the input data of the subproblem	
+	input = Dict{Symbol, Float64}() 
+    for sys in (:tech, :exc)
+		for sSym in keys(resData_obj.capa[sys]), capaSym in keys(resData_obj.capa[sys][sSym])
+            var_name = Symbol(string(sys), string(sSym), string(capaSym))
+            input[var_name] = resData_obj.capa[sys][sSym][capaSym].value[1]                    
+		end		
+	end
+    #save in Points as previous 
+    for (id,s) in enumerate(collect(keys(benders_obj.sub))) 
+        #point_df[s]= DataFrame(key = keys(input), value = values(input))
+        if s in cut_group
+            #point_df[!,:objValue] .= cutData_dic[s].objVal
+            if haskey(Points_x, s)
+                push!(Points_x[s], input)
+            else
+                Points_x[s] = [input]
+            end
+            if haskey(Points_y, s)
+                push!(Points_y[s], cutData_dic[s].objVal)
+            else
+                Points_y[s] = [cutData_dic[s].objVal]
+            end
+        end
+    end
+
 	# add the actual costs from sub-problems (should be after sub-problems are solved in distributed case!)
 	cutVar_df[!,:actCost] = map(x -> cutData_dic[(x.Ts_dis, x.scr)].objVal, eachrow(cutVar_df))
 	cutVar_df[!,:timeSub] = map(x -> timeSub_dic[(x.Ts_dis, x.scr)], eachrow(cutVar_df))
-	cutVar_df[!,:diff] = cutVar_df[!,:actCost]  .- cutVar_df[!,:estCost]
+    cutVar_df[!,:sur] .= 0.0
+    for row in eachrow(cutVar_df)
+        if ((row.Ts_dis,row.scr) in cut_group)
+            row.sur = row.actCost
+        else 
+            if surroSelect_sym == :IDW
+                row.sur = IDW.computeIDW(Points_x[(row.Ts_dis, row.scr)], Points_y[(row.Ts_dis, row.scr)], input)
+            end
+            if surroSelect_sym == :n-1
+                temp_df = track_itr[length(trackSub_itr)]
+                row.sur = temp_df[(temp_df.Ts_dis .== row.Ts_dis) .& (temp_df.scr .== row.scr), :sur]
+            end
+        end
+    end
+    cutVar_df[!,:diff] = cutVar_df[!,:sur]  .- cutVar_df[!,:estCost]
 
 	# find case with biggest difference
 	sMaxDiff_tup = tuple((cutVar_df[findall(maximum(cutVar_df[!,:diff]) .== cutVar_df[!,:diff]), :] |> (z -> map(x -> z[1,x], [:Ts_dis, :scr])))...)
 	cutVar_df[!,:maxDiff] = map(x -> sMaxDiff_tup == (x.Ts_dis, x.scr), eachrow(cutVar_df))
+    cutVar_df[!,:solved] = map(x -> (x.Ts_dis,x.scr) in cut_group, eachrow(cutVar_df))
+    #define cut group
+    empty!(cut_group)
+    for row in eachrow(cutVar_df)
+        if row.diff<-1 push!(cut_group, (row.Ts_dis,row.scr)) end
+    end
+    push!(cut_group, sMaxDiff_tup)
+    
 
 	# add number of iteration and add to overall dataframe
 	cutVar_df[!,:i] .= benders_obj.itr.cnt.i
 	append!(trackSub_df, cutVar_df)
+    push!(trackSub_itr, cutVar_df)
 
-	# delete specific cuts
-	if cutSelect_sym == :maxDiff 
-		filter!(x -> x[1] == sMaxDiff_tup, benders_obj.cuts)
-	elseif cutSelect_sym == :rnd
-		filter!(x -> x[1] == rand(collect(keys(cutData_dic))), benders_obj.cuts)
-	end
+    #define specific cuts
+    filter!(x -> x[1] in cut_group, benders_obj.cuts)
+
 
 	if rtn_boo break end
 	benders_obj.itr.cnt.i = benders_obj.itr.cnt.i + 1
