@@ -209,12 +209,13 @@ while true
             if surroSelect_sym == :IDW
                 row.sur = IDW.computeIDW(Points_x[(row.Ts_dis, row.scr)], Points_y[(row.Ts_dis, row.scr)], input)
             end
+            if surroSelect_sym == :NN
+                row.sur = IDW.computeNN(Points_x[(row.Ts_dis, row.scr)], Points_y[(row.Ts_dis, row.scr)], input)
+            end
         end
     end
     cutVar_df[!,:diff] = cutVar_df[!,:sur]  .- cutVar_df[!,:estCost]
-    for row in eachrow(cutVar_df)
-        row.diff = abs(row.diff)
-    end
+    cutVar_df[!,:diff] = map(x -> abs(x.diff), eachrow(cutVar_df))
 	# find case with biggest difference
 	sMaxDiff_tup = tuple((cutVar_df[findall(maximum(cutVar_df[!,:diff]) .== cutVar_df[!,:diff]), :] |> (z -> map(x -> z[1,x], [:Ts_dis, :scr])))...)
 	cutVar_df[!,:maxDiff] = map(x -> sMaxDiff_tup == (x.Ts_dis, x.scr), eachrow(cutVar_df))
