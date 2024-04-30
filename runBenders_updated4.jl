@@ -1,10 +1,8 @@
 using AnyMOD, Gurobi, CSV, YAML
-include("./IDW.jl")
-
 
 
 # read-in of input options
-par_df = CSV.read("settings_surro.csv",DataFrame)
+par_df = CSV.read("settings.csv",DataFrame)
 
 if isempty(ARGS)
     id_int = 1
@@ -14,7 +12,7 @@ else
     t_int = parse(Int,ARGS[2]) # number of threads
 end
 
-surroSelect_sym = Symbol(par_df[id_int,:surroSelect]) # can be :IDW
+cutSelect_sym = Symbol(par_df[id_int,:cutSelect]) # can be :all, :maxDiff, or :rnd new:sur--use previous actual cost as surrogates
 scr_int = par_df[id_int,:scr] # number of scenarios
 res_int = par_df[id_int,:h] # number of hours
 gap = 0.01
@@ -56,7 +54,7 @@ nearOptSetup_obj = nothing # cost threshold to keep solution, lls threshold to k
 #region # * options for problem
 
 # ! general problem settings
-name_str =string("scr",scr_int, "_", res_int,"h_", surroSelect_sym,"_gap",gap)
+name_str =string("scr",scr_int, "_", res_int,"h_", cutSelect_sym,"_gap",gap)
 # name, temporal resolution, level of foresight, superordinate dispatch level, length of steps between investment years
 info_ntup = (name = name_str, frs = 0, supTsLvl = 1, shortExp = 10) 
 
@@ -109,11 +107,9 @@ benders_obj = bendersObj(info_ntup, inputFolder_ntup, scale_dic, algSetup_obj, s
 #region # * iteration algorithm
 
 # dataframe to track approximation of sub-problems
-trackSub_df = DataFrame(i = Int[], Ts_dis = Int[], scr = Int[], actCost = Float64[], estCost = Float64[], diff = Float64[], timeSub = Millisecond[], maxDiff = Bool[],sur = Float64[], ToSolve = Bool[])
+trackSub_df = DataFrame(i = Int[], Ts_dis = Int[], scr = Int[], actCost = Float64[], estCost = Float64[], diff = Float64[], timeSub = Millisecond[], maxDiff = Bool[])
 sMaxDiff_tup = tuple()
-Points_x = Dict{Tuple{Int64,Int64},Vector{Dict}}() #Input of each subproblem of previous iterations are documented
-Points_y = Dict{Tuple{Int64,Int64}, Vector{Float64}}() #output of each subproblem of previous iterations
-cut_group = collect(keys(benders_obj.sub)) 
+trackCapa_df =DataFrame(timestep = String[], region = String[], system = String[], id = String[], variable = Symbol[], value = Float64[], i = Int[])
 
 while true
 
@@ -139,6 +135,10 @@ while true
 		end		
 	end
 	
+	#print objective value
+	push!(trackCapa_df, (timestep = "none", region = "none", system = "none", id = "none", variable = :objectiveValue, value = cutData_dic[(1,1)].objVal, i = benders_obj.itr.cnt.i))
+
+
 	# get the estimated cost from top-problem (must be before running top problem again without stabilization!)
 	cutVar_df = copy(benders_obj.top.parts.obj.var[:cut]) 
 	cutVar_df[!,:estCost] = value.(cutVar_df)[!,:var]
@@ -156,7 +156,6 @@ while true
 		end
 	end
 
-
 	#endregion
 
 	#region # * analyse results and update refinements
@@ -172,91 +171,29 @@ while true
 	
 	#endregion
 
-     #save the input data of the subproblem	
-	input = Dict{Symbol, Float64}() 
-    for sys in (:tech, :exc)
-		for sSym in keys(resData_obj.capa[sys]), capaSym in keys(resData_obj.capa[sys][sSym])
-            if sys == :tech
-                for (index,row) in enumerate(eachrow(resData_obj.capa[sys][sSym][capaSym]))
-                    var_name = Symbol(string(sys),"<", string(sSym),"<", string(capaSym),"<",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_expansion[index])
-                    input[var_name] = row.value
-                end
-            elseif sys == :exc
-                for (index,row) in enumerate(eachrow(resData_obj.capa[sys][sSym][capaSym]))
-                    var_name = Symbol(string(sys),"<",string(sSym),"<",string(capaSym),"<",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).R_from[index],"-",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).R_to[index])
-                    input[var_name] = row.value
-                end
-            end                 
-		end		
-	end
-    #save in Points as previous 
-    for (id,s) in enumerate(collect(keys(benders_obj.sub))) 
-        #point_df[s]= DataFrame(key = keys(input), value = values(input))
-        if s in cut_group
-            #point_df[!,:objValue] .= cutData_dic[s].objVal
-            if haskey(Points_x, s)
-                push!(Points_x[s], input)
-            else
-                Points_x[s] = [input]
-            end
-            if haskey(Points_y, s)
-                push!(Points_y[s], cutData_dic[s].objVal)
-            else
-                Points_y[s] = [cutData_dic[s].objVal]
-            end
-        end
-    end
-
 	# add the actual costs from sub-problems (should be after sub-problems are solved in distributed case!)
 	cutVar_df[!,:actCost] = map(x -> cutData_dic[(x.Ts_dis, x.scr)].objVal, eachrow(cutVar_df))
 	cutVar_df[!,:timeSub] = map(x -> timeSub_dic[(x.Ts_dis, x.scr)], eachrow(cutVar_df))
-    cutVar_df[!,:sur] .= 0.0
-    for row in eachrow(cutVar_df)
-        if ((row.Ts_dis,row.scr) in cut_group)
-            row.sur = row.actCost
-        else 
-            if surroSelect_sym == :IDW
-                row.sur = computeIDW(Points_x[(row.Ts_dis, row.scr)], Points_y[(row.Ts_dis, row.scr)], input)
-            end
-            if surroSelect_sym == :NN
-                row.sur = computeNN(Points_x[(row.Ts_dis, row.scr)], Points_y[(row.Ts_dis, row.scr)], input)
-            end
-        end
-    end
-    cutVar_df[!,:diff] = cutVar_df[!,:sur]  .- cutVar_df[!,:estCost]
-    #cutVar_df[!,:diff] = map(x -> abs(x.diff), eachrow(cutVar_df))
-    for row in eachrow(cutVar_df)
-        if row.diff<-1 
-            row.sur = row.estCost
-            row.diff = 0
-        end
-    end
+	cutVar_df[!,:diff] = cutVar_df[!,:actCost]  .- cutVar_df[!,:estCost]
+
 	# find case with biggest difference
 	sMaxDiff_tup = tuple((cutVar_df[findall(maximum(cutVar_df[!,:diff]) .== cutVar_df[!,:diff]), :] |> (z -> map(x -> z[1,x], [:Ts_dis, :scr])))...)
 	cutVar_df[!,:maxDiff] = map(x -> sMaxDiff_tup == (x.Ts_dis, x.scr), eachrow(cutVar_df))
-    
-    #define cut group
-    empty!(cut_group)
-    #for row in eachrow(cutVar_df)
-    #    if row.diff<-1 push!(cut_group, (row.Ts_dis,row.scr)) end
-    #end
-    push!(cut_group, sMaxDiff_tup)
-    cutVar_df[!,:ToSolve] = map(x -> (x.Ts_dis,x.scr) in cut_group, eachrow(cutVar_df))
 
 	# add number of iteration and add to overall dataframe
 	cutVar_df[!,:i] .= benders_obj.itr.cnt.i
 	append!(trackSub_df, cutVar_df)
 
-    #define specific cuts
-    filter!(x -> x[1] in cut_group, benders_obj.cuts)
-
+	# delete specific cuts
+	if cutSelect_sym == :maxDiff 
+		filter!(x -> x[1] == sMaxDiff_tup, benders_obj.cuts)
+	elseif cutSelect_sym == :rnd
+		filter!(x -> x[1] == rand(collect(keys(cutData_dic))), benders_obj.cuts)
+	end
 
 	if rtn_boo break end
 	benders_obj.itr.cnt.i = benders_obj.itr.cnt.i + 1
-    #report trackSub_df
-    if benders_obj.itr.cnt.i % 10 == 0 
-        CSV.write(benders_obj.report.mod.options.outDir * "/trackingSub_$(benders_obj.info.name).csv", trackSub_df)
-    end
+
 end
 
 #endregion
@@ -268,4 +205,4 @@ trackSub_df[!,:run] .= benders_obj.info.name
 
 CSV.write(benders_obj.report.mod.options.outDir * "/iterationBenders_$(benders_obj.info.name).csv", benders_obj.report.itr)
 CSV.write(benders_obj.report.mod.options.outDir * "/trackingSub_$(benders_obj.info.name).csv", trackSub_df)
-#CSV.write(benders_obj.report.mod.options.outDir * "/trackingCapa_$(benders_obj.info.name).csv", trackCapa_df)
+CSV.write(benders_obj.report.mod.options.outDir * "/trackingCapa_$(benders_obj.info.name).csv", trackCapa_df)	

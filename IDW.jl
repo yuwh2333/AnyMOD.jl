@@ -1,8 +1,3 @@
-
-module IDW
-
-    export computeIDW,computeNN
-    using DataFrames
     function computeIDW(x_train::Vector{Dict}, y_train::Vector{Float64}, x::Dict)
         w = zeros(length(x_train))
         u_up = 0.0
@@ -39,5 +34,5 @@ module IDW
         end
         return y_train[argmax(dis)]
     end
-end
+
 
