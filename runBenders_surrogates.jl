@@ -114,6 +114,7 @@ sMaxDiff_tup = tuple()
 Points_x = Dict{Tuple{Int64,Int64},Vector{Dict}}() #Input of each subproblem of previous iterations are documented
 Points_y = Dict{Tuple{Int64,Int64}, Vector{Float64}}() #output of each subproblem of previous iterations
 cut_group = collect(keys(benders_obj.sub)) 
+dualvr = Dict{Tuple{Int64,Int64},Vector{Dict}}()
 
 while true
 
@@ -189,31 +190,9 @@ while true
             end                 
 		end		
 	end
-    dualvr = Dict{Tuple{Int64,Int64},Dict{Symbol, Float64}}()
-    inner_dict = Dict{Symbol, Float64}()
-    for (id,s) in enumerate(collect(keys(cutData_dic)))
-        for sys in (:tech, :exc)
-            for sSym in keys(cutData_dic[s].capa[sys]), capaSym in keys(cutData_dic[s].capa[sys][sSym])
-                if sys == :tech
-                    for (index,row) in enumerate(eachrow(cutData_dic[s].capa[sys][sSym][capaSym]))
-                        var_name = Symbol(string(sys),"<", string(sSym),"<", string(capaSym),"<",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_expansion[index],"<Dual")
-                        inner_dict[var_name] = row.dual
-                    end
-                elseif sys == :exc
-                    for (index,row) in enumerate(eachrow(cutData_dic[s].capa[sys][sSym][capaSym]))
-                        var_name = Symbol(string(sys),"<",string(sSym),"<",string(capaSym),"<",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_from[index],"-",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_to[index],string("<Dual"))
-                        inner_dict[var_name] = row.dual
-                    end
-                end                 
-            end		
-        end
-        dualvr[s] = inner_dict
-    end
 
 
-
-
-    #save in Points as previous 
+    #save the input and output in Points for subproblems solved as previous data
     for (id,s) in enumerate(collect(keys(benders_obj.sub))) 
         #point_df[s]= DataFrame(key = keys(input), value = values(input))
         if s in cut_group
@@ -227,6 +206,32 @@ while true
                 push!(Points_y[s], cutData_dic[s].objVal)
             else
                 Points_y[s] = [cutData_dic[s].objVal]
+            end
+        end
+    end
+
+    inner_dict = Dict{Symbol, Float64}()
+    for (id,s) in enumerate(collect(keys(cutData_dic)))
+        if s in cut_group
+            for sys in (:tech, :exc)
+                for sSym in keys(cutData_dic[s].capa[sys]), capaSym in keys(cutData_dic[s].capa[sys][sSym])
+                    if sys == :tech
+                        for (index,row) in enumerate(eachrow(cutData_dic[s].capa[sys][sSym][capaSym]))
+                            var_name = Symbol(string(sys),"<", string(sSym),"<", string(capaSym),"<",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_expansion[index],"<Dual")
+                            inner_dict[var_name] = row.dual
+                        end
+                    elseif sys == :exc
+                        for (index,row) in enumerate(eachrow(cutData_dic[s].capa[sys][sSym][capaSym]))
+                            var_name = Symbol(string(sys),"<",string(sSym),"<",string(capaSym),"<",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_from[index],"-",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_to[index],string("<Dual"))
+                            inner_dict[var_name] = row.dual
+                        end
+                    end
+                end                 
+            end		
+            if haskey(dualvr, s)
+                push!(dualvr[s],inner_dict)
+            else
+                dualvr[s] = [inner_dict]
             end
         end
     end
@@ -255,7 +260,7 @@ while true
     for row in eachrow(cutVar_df)
         if row.diff<-1 
             row.sur = row.estCost
-            row.diff = 0
+            row.diff = 1
         end
     end
 	# find case with biggest difference

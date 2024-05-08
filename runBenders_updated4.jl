@@ -109,7 +109,7 @@ benders_obj = bendersObj(info_ntup, inputFolder_ntup, scale_dic, algSetup_obj, s
 # dataframe to track approximation of sub-problems
 trackSub_df = DataFrame(i = Int[], Ts_dis = Int[], scr = Int[], actCost = Float64[], estCost = Float64[], diff = Float64[], timeSub = Millisecond[], maxDiff = Bool[])
 sMaxDiff_tup = tuple()
-trackCapa_df =DataFrame(timestep = String[], region = String[], system = String[], id = String[], variable = Symbol[], value = Float64[], i = Int[])
+#trackCapa_df =DataFrame(timestep = String[], region = String[], system = String[], id = String[], variable = Symbol[], value = Float64[], i = Int[])
 
 while true
 
@@ -135,9 +135,7 @@ while true
 		end		
 	end
 	
-	#print objective value
-	push!(trackCapa_df, (timestep = "none", region = "none", system = "none", id = "none", variable = :objectiveValue, value = cutData_dic[(1,1)].objVal, i = benders_obj.itr.cnt.i))
-
+	
 
 	# get the estimated cost from top-problem (must be before running top problem again without stabilization!)
 	cutVar_df = copy(benders_obj.top.parts.obj.var[:cut]) 
@@ -205,4 +203,4 @@ trackSub_df[!,:run] .= benders_obj.info.name
 
 CSV.write(benders_obj.report.mod.options.outDir * "/iterationBenders_$(benders_obj.info.name).csv", benders_obj.report.itr)
 CSV.write(benders_obj.report.mod.options.outDir * "/trackingSub_$(benders_obj.info.name).csv", trackSub_df)
-CSV.write(benders_obj.report.mod.options.outDir * "/trackingCapa_$(benders_obj.info.name).csv", trackCapa_df)	
+#CSV.write(benders_obj.report.mod.options.outDir * "/trackingCapa_$(benders_obj.info.name).csv", trackCapa_df)	

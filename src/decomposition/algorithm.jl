@@ -1075,8 +1075,7 @@ function reportBenders!(benders_obj::bendersObj, resData_obj::resData, elpTop_ti
 	push!(report_obj.itr, (;zip(getindex.(etr_arr, 1), getindex.(etr_arr, 2))...))
 
 	# ! near-optimal reporting
-	if !isnothing(benders_obj.nearOpt.setup)
-
+	if !isnothing(benders_obj.nearOpt.setup) || true
 		lss_fl = sum(collect(values(lss_dic)))
 
 		if benders_obj.nearOpt.cnt == 0 || (itr_obj.res[:actTotCost] <= itr_obj.res[:optCost] * (1 + benders_obj.nearOpt.setup.cutThres) && lss_fl <= itr_obj.res[:optLss] * (1 + benders_obj.nearOpt.setup.lssThres))
