@@ -183,12 +183,36 @@ while true
                 end
             elseif sys == :exc
                 for (index,row) in enumerate(eachrow(resData_obj.capa[sys][sSym][capaSym]))
-                    var_name = Symbol(string(sys),"<",string(sSym),"<",string(capaSym),"<",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).R_from[index],"-",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).R_to[index])
+                    var_name = Symbol(string(sys),"<",string(sSym),"<",string(capaSym),"<",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_from[index],"-",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_to[index])
                     input[var_name] = row.value
                 end
             end                 
 		end		
 	end
+    dualvr = Dict{Tuple{Int64,Int64},Dict{Symbol, Float64}}()
+    inner_dict = Dict{Symbol, Float64}()
+    for (id,s) in enumerate(collect(keys(cutData_dic)))
+        for sys in (:tech, :exc)
+            for sSym in keys(cutData_dic[s].capa[sys]), capaSym in keys(cutData_dic[s].capa[sys][sSym])
+                if sys == :tech
+                    for (index,row) in enumerate(eachrow(cutData_dic[s].capa[sys][sSym][capaSym]))
+                        var_name = Symbol(string(sys),"<", string(sSym),"<", string(capaSym),"<",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_expansion[index],"<Dual")
+                        inner_dict[var_name] = row.dual
+                    end
+                elseif sys == :exc
+                    for (index,row) in enumerate(eachrow(cutData_dic[s].capa[sys][sSym][capaSym]))
+                        var_name = Symbol(string(sys),"<",string(sSym),"<",string(capaSym),"<",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_from[index],"-",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_to[index],string("<Dual"))
+                        inner_dict[var_name] = row.dual
+                    end
+                end                 
+            end		
+        end
+        dualvr[s] = inner_dict
+    end
+
+
+
+
     #save in Points as previous 
     for (id,s) in enumerate(collect(keys(benders_obj.sub))) 
         #point_df[s]= DataFrame(key = keys(input), value = values(input))
@@ -220,6 +244,9 @@ while true
             end
             if surroSelect_sym == :NN
                 row.sur = computeNN(Points_x[(row.Ts_dis, row.scr)], Points_y[(row.Ts_dis, row.scr)], input)
+            end
+            if surroSelect_sym == :dualIDW
+                row.sur = computedualIDW(Points_x[(row.Ts_dis, row.scr)], Points_y[(row.Ts_dis, row.scr)], input, dualvr[(row.Ts_dis, row.scr)])
             end
         end
     end
