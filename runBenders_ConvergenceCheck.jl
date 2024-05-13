@@ -115,7 +115,8 @@ Points_x = Dict{Tuple{Int64,Int64},Vector{Dict}}() #Input of each subproblem of 
 Points_y = Dict{Tuple{Int64,Int64}, Vector{Float64}}() #output of each subproblem of previous iterations
 cut_group = collect(keys(benders_obj.sub)) 
 dualvr = Dict{Tuple{Int64,Int64},Vector{Dict}}()
-inputvr = Vector{Dict{Symbol, Float64}}()
+check_Conv = false
+track_itr = Vector{DataFrame}() 
 while true
 
 	produceMessage(benders_obj.report.mod.options, benders_obj.report.mod.report, 1, " - Started iteration $(benders_obj.itr.cnt.i)", testErr = false, printErr = false)
@@ -136,7 +137,13 @@ while true
 		if benders_obj.algOpt.dist # distributed case
 			futData_dic[s] = runSubDist(id + 1, copy(resData_obj), :barrier, 1e-8)
 		else # non-distributed case
-			cutData_dic[s], timeSub_dic[s], lss_dic[s] = runSub(benders_obj.sub[s], copy(resData_obj), :barrier, 1e-8)
+			if s in cut_group
+			    cutData_dic[s], timeSub_dic[s], lss_dic[s] = runSub(benders_obj.sub[s], copy(resData_obj), :barrier, 1e-8)
+            else
+                cutData_dic[s] = resData()
+                #cutData_dic[s].objVal = first(temp_track_itr[(temp_track_itr[!,:Ts_dis] .== s[1]) .& (temp_track_itr[!,:scr] .== s[2]), :actCost])
+				cutData_dic[s].objVal = Inf
+			end	
 		end		
 	end
 	
@@ -190,8 +197,11 @@ while true
             end                 
 		end		
 	end
+    if input == inputvr[length(inputvr)] 
+        check_Conv = true
+    end
     push!(inputvr,input)
-
+    
 
     #save the input and output in Points for subproblems solved as previous data
     for (id,s) in enumerate(collect(keys(benders_obj.sub))) 
@@ -225,8 +235,8 @@ while true
                         for (index,row) in enumerate(eachrow(cutData_dic[s].capa[sys][sSym][capaSym]))
                             var_name = Symbol(string(sys),"<",string(sSym),"<",string(capaSym),"<",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_from[index],"-",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_to[index],string("<Dual"))
                             inner_dict[var_name] = row.dual
-                        end 
-                    end 
+                        end
+                    end
                 end                 
             end		
             if haskey(dualvr, s)
@@ -237,26 +247,22 @@ while true
         end
     end
 
-
 	# add the actual costs from sub-problems (should be after sub-problems are solved in distributed case!)
-	cutVar_df[!,:actCost] = map(x -> cutData_dic[(x.Ts_dis, x.scr)].objVal, eachrow(cutVar_df))
-	cutVar_df[!,:timeSub] = map(x -> timeSub_dic[(x.Ts_dis, x.scr)], eachrow(cutVar_df))
-    cutVar_df[!,:sur] .= 0.0
+	cutVar_df[!,:actCost].=0.0
+    cutVar_df[!,:timeSub].=Millisecond(0)
+    cutVar_df[!,:sur].=0.0
     for row in eachrow(cutVar_df)
-        if ((row.Ts_dis,row.scr) in cut_group)
+        if (row[:Ts_dis], row[:scr]) in cut_group
+            row[:actCost] = cutData_dic[(row[:Ts_dis], row[:scr])].objVal
+            row[:timeSub] = timeSub_dic[(row[:Ts_dis], row[:scr])]
             row.sur = row.actCost
-        else 
-            if surroSelect_sym == :IDW
+        else
+            if surroSelect_sym == :IDW_cc
                 row.sur = computeIDW(Points_x[(row.Ts_dis, row.scr)], Points_y[(row.Ts_dis, row.scr)], input)
             end
-            if surroSelect_sym == :NN
-                row.sur = computeNN(Points_x[(row.Ts_dis, row.scr)], Points_y[(row.Ts_dis, row.scr)], input)
-            end
-            if surroSelect_sym == :dualIDW
-                row.sur = computedualIDW(Points_x[(row.Ts_dis, row.scr)], Points_y[(row.Ts_dis, row.scr)], input, dualvr[(row.Ts_dis, row.scr)])
-            end
+            row[:timeSub] = Millisecond(0)
         end
-    end
+    end   
     cutVar_df[!,:diff] = cutVar_df[!,:sur]  .- cutVar_df[!,:estCost]
     #cutVar_df[!,:diff] = map(x -> abs(x.diff), eachrow(cutVar_df))
     for row in eachrow(cutVar_df)
@@ -269,20 +275,42 @@ while true
 	sMaxDiff_tup = tuple((cutVar_df[findall(maximum(cutVar_df[!,:diff]) .== cutVar_df[!,:diff]), :] |> (z -> map(x -> z[1,x], [:Ts_dis, :scr])))...)
 	cutVar_df[!,:maxDiff] = map(x -> sMaxDiff_tup == (x.Ts_dis, x.scr), eachrow(cutVar_df))
     
+    #if check_Conv is needed
+    if !isempty(track_itr)
+        temp_track_itr = track_itr[length(track_itr)]
+        for row in eachrow(cutVar_df)
+            if (row.Ts_dis, row.scr) in cut_group
+                if row.actCost == first(temp_track_itr[(temp_track_itr[!,:Ts_dis] .== row[:Ts_dis]) .& (temp_track_itr[!,:scr] .== row[:scr]), :actCost]) 
+                    check_Conv = true
+                end
+            end
+        end
+    end
+           
+
+
+
 
     #define specific cuts
     filter!(x -> x[1] in cut_group, benders_obj.cuts)
 
-    #define cut group
+
+    #define new cut group
     empty!(cut_group)
     #for row in eachrow(cutVar_df)
     #    if row.diff<-1 push!(cut_group, (row.Ts_dis,row.scr)) end
     #end
-    push!(cut_group, sMaxDiff_tup)
+    if check_Conv == true
+        cut_group = collect(keys(benders_obj.sub))
+        check_Conv = false
+    else
+        push!(cut_group, sMaxDiff_tup)
+    end
     cutVar_df[!,:ToSolve] = map(x -> (x.Ts_dis,x.scr) in cut_group, eachrow(cutVar_df))
 
 	# add number of iteration and add to overall dataframe
 	cutVar_df[!,:i] .= benders_obj.itr.cnt.i
+	push!(track_itr, cutVar_df)
 	append!(trackSub_df, cutVar_df)
 
     

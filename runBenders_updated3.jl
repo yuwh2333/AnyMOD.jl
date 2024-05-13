@@ -141,10 +141,11 @@ while true
 			end
 			if capaSym in (:capaConv, :capaExc) capa_df[!,:id] .= "" end
 			capa_df[!,:variable] .= capaSym
+			capa_df[!,:i].=benders_obj.itr.cnt.i
 			# add to all capacities
 			append!(newRes_df, capa_df)			
 		end
-		newRes_df[!,:i] .= benders_obj.itr.cnt.i
+		#newRes_df[!,:i] .= benders_obj.itr.cnt.i
 		append!(trackCapa_df, newRes_df)
 	end
 

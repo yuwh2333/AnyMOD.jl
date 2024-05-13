@@ -174,6 +174,15 @@ while true
 	cutVar_df[!,:timeSub] = map(x -> timeSub_dic[(x.Ts_dis, x.scr)], eachrow(cutVar_df))
 	cutVar_df[!,:diff] = cutVar_df[!,:actCost]  .- cutVar_df[!,:estCost]
 
+	# delete specific cuts
+	if !isempty(sMaxDiff_tup)
+		if cutSelect_sym == :maxDiff 
+			filter!(x -> x[1] == sMaxDiff_tup, benders_obj.cuts)
+		elseif cutSelect_sym == :rnd
+			filter!(x -> x[1] == rand(collect(keys(cutData_dic))), benders_obj.cuts)
+		end
+	end
+
 	# find case with biggest difference
 	sMaxDiff_tup = tuple((cutVar_df[findall(maximum(cutVar_df[!,:diff]) .== cutVar_df[!,:diff]), :] |> (z -> map(x -> z[1,x], [:Ts_dis, :scr])))...)
 	cutVar_df[!,:maxDiff] = map(x -> sMaxDiff_tup == (x.Ts_dis, x.scr), eachrow(cutVar_df))
@@ -182,12 +191,7 @@ while true
 	cutVar_df[!,:i] .= benders_obj.itr.cnt.i
 	append!(trackSub_df, cutVar_df)
 
-	# delete specific cuts
-	if cutSelect_sym == :maxDiff 
-		filter!(x -> x[1] == sMaxDiff_tup, benders_obj.cuts)
-	elseif cutSelect_sym == :rnd
-		filter!(x -> x[1] == rand(collect(keys(cutData_dic))), benders_obj.cuts)
-	end
+	
 
 	if rtn_boo break end
 	benders_obj.itr.cnt.i = benders_obj.itr.cnt.i + 1

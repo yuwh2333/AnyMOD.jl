@@ -256,7 +256,7 @@ while true
 	cutVar_df[!,:i] .= benders_obj.itr.cnt.i
     push!(track_itr, cutVar_df)
 	append!(trackSub_df, cutVar_df)
-
+	
 	# delete specific cuts :only the one in cut group
     #filter!(x-> !isempty(x[2].capa), benders_obj.cuts)
 	#if cutSelect_sym == :maxDiff 
