@@ -121,6 +121,11 @@ while true
 	resData_obj, stabVar_obj = @suppress runTop(benders_obj); 
 	elpTop_time = now() - str_time
 
+
+	# decide here which SP to solve: 
+	# 1) compare cutting plane estimator to surrogate esimator -> find largest difference
+	# 2) define maxTup (or cut_group)
+
 	# start solving sub-problems
 	cutData_dic = Dict{Tuple{Int64,Int64},resData}()
 	timeSub_dic = Dict{Tuple{Int64,Int64},Millisecond}()
@@ -135,8 +140,6 @@ while true
 		end		
 	end
 	
-	
-
 	# get the estimated cost from top-problem (must be before running top problem again without stabilization!)
 	cutVar_df = copy(benders_obj.top.parts.obj.var[:cut]) 
 	cutVar_df[!,:estCost] = value.(cutVar_df)[!,:var]
@@ -174,18 +177,24 @@ while true
 	cutVar_df[!,:timeSub] = map(x -> timeSub_dic[(x.Ts_dis, x.scr)], eachrow(cutVar_df))
 	cutVar_df[!,:diff] = cutVar_df[!,:actCost]  .- cutVar_df[!,:estCost]
 
-	# delete specific cuts
-	if !isempty(sMaxDiff_tup)
-		if cutSelect_sym == :maxDiff 
-			filter!(x -> x[1] == sMaxDiff_tup, benders_obj.cuts)
-		elseif cutSelect_sym == :rnd
-			filter!(x -> x[1] == rand(collect(keys(cutData_dic))), benders_obj.cuts)
-		end
-	end
-
 	# find case with biggest difference
 	sMaxDiff_tup = tuple((cutVar_df[findall(maximum(cutVar_df[!,:diff]) .== cutVar_df[!,:diff]), :] |> (z -> map(x -> z[1,x], [:Ts_dis, :scr])))...)
 	cutVar_df[!,:maxDiff] = map(x -> sMaxDiff_tup == (x.Ts_dis, x.scr), eachrow(cutVar_df))
+
+	
+
+	# delete specific cuts
+	if benders_obj.itr.cnt.i>2
+		if !isempty(sMaxDiff_tup)
+			if cutSelect_sym == :maxDiff 
+				filter!(x -> x[1] == sMaxDiff_tup, benders_obj.cuts)
+			elseif cutSelect_sym == :rnd
+				filter!(x -> x[1] == rand(collect(keys(cutData_dic))), benders_obj.cuts)
+			end
+		end
+	end
+
+
 
 	# add number of iteration and add to overall dataframe
 	cutVar_df[!,:i] .= benders_obj.itr.cnt.i
