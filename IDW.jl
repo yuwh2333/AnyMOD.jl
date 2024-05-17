@@ -12,7 +12,7 @@
             if d!=0
                 w[i] = 1 / (d^p)
             else
-                w[i] = 0
+                return y_train[i]
             end
             u_up += w[i] * y_train[i]
             u_down += w[i]
@@ -35,7 +35,7 @@
             d = sqrt(d)
             push!(dis,d)
         end
-        return y_train[argmax(dis)]
+        return y_train[argmin(dis)]
     end
 
     function computedualIDW(x_train::Vector{Dict}, y_train::Vector{Float64}, x::Dict, dual_dic::Vector{Dict})
@@ -66,5 +66,7 @@
             return 0
         end
     end
+
+
 
 

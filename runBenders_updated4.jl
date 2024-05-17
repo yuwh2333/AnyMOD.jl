@@ -122,10 +122,6 @@ while true
 	elpTop_time = now() - str_time
 
 
-	# decide here which SP to solve: 
-	# 1) compare cutting plane estimator to surrogate esimator -> find largest difference
-	# 2) define maxTup (or cut_group)
-
 	# start solving sub-problems
 	cutData_dic = Dict{Tuple{Int64,Int64},resData}()
 	timeSub_dic = Dict{Tuple{Int64,Int64},Millisecond}()

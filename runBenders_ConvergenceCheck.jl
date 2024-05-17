@@ -130,22 +130,7 @@ while true
     # decide here which SP to solve: 
 	# 1) compare cutting plane estimator to surrogate esimator -> find largest difference
     # save the result of the top problem/input data for the subproblem	
-	input = Dict{Symbol, Float64}() 
-    for sys in (:tech, :exc)
-		for sSym in keys(resData_obj.capa[sys]), capaSym in keys(resData_obj.capa[sys][sSym])
-            if sys == :tech
-                for (index,row) in enumerate(eachrow(resData_obj.capa[sys][sSym][capaSym]))
-                    var_name = Symbol(string(sys),"<", string(sSym),"<", string(capaSym),"<",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_expansion[index])
-                    input[var_name] = row.value
-                end
-            elseif sys == :exc
-                for (index,row) in enumerate(eachrow(resData_obj.capa[sys][sSym][capaSym]))
-                    var_name = Symbol(string(sys),"<",string(sSym),"<",string(capaSym),"<",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_from[index],"-",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_to[index])
-                    input[var_name] = row.value
-                end
-            end                 
-		end		
-	end
+	input = resDatatoDict!(resData_obj)
     #if input == inputvr[length(inputvr)] 
     #    check_Conv = true
     #end
@@ -155,16 +140,14 @@ while true
 	cutVar_df = copy(benders_obj.top.parts.obj.var[:cut]) 
 	cutVar_df[!,:estCost] = value.(cutVar_df)[!,:var]
 	select!(cutVar_df,Not([:var]))
-
-    # add the actual costs from sub-problems (should be after sub-problems are solved in distributed case!)
-	#cutVar_df[!,:actCost].=0.0
+    #cutVar_df[!,:actCost].=0.0
     cutVar_df[!,:timeSub].=Millisecond(0)
     cutVar_df[!,:sur].=0.0
     
     if benders_obj.itr.cnt.i>2
         for row in eachrow(cutVar_df)
             if surroSelect_sym == :IDW_cc
-                row.sur = computeIDW(Points_x[(row.Ts_dis, row.scr)][1:end], Points_y[(row.Ts_dis, row.scr)], input)
+                row.sur = computeIDW(Points_x[(row.Ts_dis, row.scr)], Points_y[(row.Ts_dis, row.scr)], input)
             end
         end 
     end
@@ -172,7 +155,7 @@ while true
     #cutVar_df[!,:diff] = map(x -> abs(x.diff), eachrow(cutVar_df))
     for row in eachrow(cutVar_df)
         if row.diff<-1 
-            row.diff = 0.1
+            row.diff = 1
         end
     end
 
@@ -347,6 +330,7 @@ while true
     if benders_obj.itr.cnt.i % 10 == 0 
         CSV.write(benders_obj.report.mod.options.outDir * "/trackingSub_$(benders_obj.info.name).csv", trackSub_df)
     end
+    if benders_obj.itr.cnt.i == 200 break end
 end
 
 #endregion
