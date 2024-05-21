@@ -1,5 +1,7 @@
 using AnyMOD, Gurobi, CSV, YAML
 include("./IDW.jl")
+include("./functions.jl")
+
 
 
 
@@ -117,6 +119,7 @@ cut_group = collect(keys(benders_obj.sub))
 dualvr = Dict{Tuple{Int64,Int64},Vector{Dict}}()
 check_Conv = false
 track_itr = Vector{DataFrame}() 
+inputvr = Vector{Dict{Symbol, Float64}}()
 while true
 
 	produceMessage(benders_obj.report.mod.options, benders_obj.report.mod.report, 1, " - Started iteration $(benders_obj.itr.cnt.i)", testErr = false, printErr = false)
@@ -166,7 +169,7 @@ while true
     
     sMaxDiff_tup = tuple((cutVar_df[findall(maximum(cutVar_df[!,:diff]) .== cutVar_df[!,:diff]), :] |> (z -> map(x -> z[1,x], [:Ts_dis, :scr])))...)
 	cutVar_df[!,:maxDiff] = map(x -> sMaxDiff_tup == (x.Ts_dis, x.scr), eachrow(cutVar_df))
-    last_cut_group = cut_group
+    #last_cut_group = cut_group
     empty!(cut_group)
     push!(cut_group, sMaxDiff_tup)
     if benders_obj.itr.cnt.i == 2 || check_Conv == true
@@ -222,16 +225,17 @@ while true
 		end
 	end
 
+    # update results and stabilization
+	updateIteration!(benders_obj, cutData_dic, stabVar_obj)
+
+	# report on iteration
+	reportBenders!(benders_obj, resData_obj, elpTop_time, timeSub_dic, lss_dic)
 
 	#endregion
 
 	#region # * analyse results and update refinements
 
-	# update results and stabilization
-	updateIteration!(benders_obj, cutData_dic, stabVar_obj)
-
-	# report on iteration
-	reportBenders!(benders_obj, resData_obj, elpTop_time, timeSub_dic, lss_dic)
+	
 
 	# check convergence and finish
 	rtn_boo = checkConvergence(benders_obj, lss_dic)
@@ -239,7 +243,7 @@ while true
 	#endregion
 
     
-
+    #save duals, currently not relevant
     inner_dict = Dict{Symbol, Float64}()
     for (id,s) in enumerate(collect(keys(cutData_dic)))
         if s in cut_group
@@ -272,12 +276,12 @@ while true
         if (row[:Ts_dis], row[:scr]) in cut_group
             row[:actCost] = cutData_dic[(row[:Ts_dis], row[:scr])].objVal
             row[:timeSub] = timeSub_dic[(row[:Ts_dis], row[:scr])]
-            if !isempty(track_itr)
-                temp_track_itr = track_itr[length(track_itr)]
-                if cut_group == last_cut_group && row.actCost == first(temp_track_itr[(temp_track_itr[!,:Ts_dis] .== row[:Ts_dis]) .& (temp_track_itr[!,:scr] .== row[:scr]), :actCost])
-                    check_Conv = true
-                end
-            end        #        row.sur = row.actCost
+            #if !isempty(track_itr)
+            #    temp_track_itr = track_itr[length(track_itr)]
+            #    if cut_group == last_cut_group && row.actCost == first(temp_track_itr[(temp_track_itr[!,:Ts_dis] .== row[:Ts_dis]) .& (temp_track_itr[!,:scr] .== row[:scr]), :actCost])
+            #        check_Conv = true
+            #    end
+            #end        
         end
     end   
    

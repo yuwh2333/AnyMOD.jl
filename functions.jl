@@ -1,4 +1,4 @@
-function resDatatoDict!(resData_obj::resData)
+function resDatatoDict(resData_obj::resData)
     """ 
     input: resData_obj
     output: Dict_obj
@@ -23,3 +23,60 @@ function resDatatoDict!(resData_obj::resData)
 	end
     return Dict_obj
 end
+
+function saveDual(cutData_dic, cut_group, resData_obj, benders_obj, dualvr)
+    inner_dict = Dict{Symbol, Float64}()
+    for (id,s) in enumerate(collect(keys(cutData_dic)))
+        if s in cut_group
+            for sys in (:tech, :exc)
+                for sSym in keys(cutData_dic[s].capa[sys]), capaSym in keys(cutData_dic[s].capa[sys][sSym])
+                    if sys == :tech
+                        for (index,row) in enumerate(eachrow(cutData_dic[s].capa[sys][sSym][capaSym]))
+                            var_name = Symbol(string(sys),"<", string(sSym),"<", string(capaSym),"<",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_expansion[index],"<Dual")
+                            inner_dict[var_name] = row.dual
+                        end
+                    elseif sys == :exc
+                        for (index,row) in enumerate(eachrow(cutData_dic[s].capa[sys][sSym][capaSym]))
+                            var_name = Symbol(string(sys),"<",string(sSym),"<",string(capaSym),"<",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_from[index],"-",printObject(resData_obj.capa[sys][sSym][capaSym],benders_obj.top,rtnDf = (:csvDf,)).region_to[index],string("<Dual"))
+                            inner_dict[var_name] = row.dual
+                        end 
+                    end 
+                end                 
+            end		
+            if haskey(dualvr, s)
+                push!(dualvr[s],inner_dict)
+            else
+                dualvr[s] = [inner_dict]
+            end
+        end
+    end
+end
+
+mutable struct PointsData
+    x::Dict{Tuple{Int64,Int64}, Vector{Dict}}
+    y::Dict{Tuple{Int64,Int64}, Vector{Float64}}
+    function PointsData()
+        new(Dict{Tuple{Int64,Int64}, Vector{Dict}}(), Dict{Tuple{Int64,Int64}, Vector{Float64}}())
+    end
+end
+
+function updatePoints!(Points, input, cutData_dic,benders_obj)
+    for (id,s) in enumerate(collect(keys(benders_obj.sub))) 
+        if s in cut_group
+            if haskey(Points.x, s)
+                push!(Points.x[s], input)
+            else
+                Points.x[s] = [input]
+            end
+            if haskey(Points.y, s)
+                push!(Points.y[s], cutData_dic[s].objVal)
+            else
+                Points.y[s] = [cutData_dic[s].objVal]
+            end
+        end
+    end
+end
+
+
+
+
