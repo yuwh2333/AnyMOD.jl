@@ -115,7 +115,7 @@ trackSub_df = DataFrame(i = Int[], Ts_dis = Int[], scr = Int[], actCost = Float6
 sMaxDiff_tup = tuple()
 Points = PointsData() #documentation of input and output of previous iterations
 cut_group = collect(keys(benders_obj.sub)) 
-dualvr = Dict{Tuple{Int64,Int64},Vector{Dict}}()
+#dualvr = Dict{Tuple{Int64,Int64},Vector{Dict}}()
 inputvr = Vector{Dict{Symbol, Float64}}()
 track_itr = Vector{DataFrame}()
 while true
@@ -233,7 +233,11 @@ while true
     ########################################################################################
 
     #save the input and output of subproblems solved as previous data for later prediction
-    updatePoints!(Points, input, cutData_dic, benders_obj)
+    for (id,s) in enumerate(collect(keys(benders_obj.sub))) 
+        if s in cut_group
+            savePoint!(Points, input, cutData_dic, s)
+        end
+    end
 
     #delete specific cuts
     if benders_obj.itr.cnt.i>2 

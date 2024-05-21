@@ -60,20 +60,16 @@ mutable struct PointsData
     end
 end
 
-function updatePoints!(Points, input, cutData_dic,benders_obj)
-    for (id,s) in enumerate(collect(keys(benders_obj.sub))) 
-        if s in cut_group
-            if haskey(Points.x, s)
-                push!(Points.x[s], input)
-            else
-                Points.x[s] = [input]
-            end
-            if haskey(Points.y, s)
-                push!(Points.y[s], cutData_dic[s].objVal)
-            else
-                Points.y[s] = [cutData_dic[s].objVal]
-            end
-        end
+function savePoint!(Points, input, cutData_dic,s)
+    if haskey(Points.x, s)
+        push!(Points.x[s], input)
+    else
+        Points.x[s] = [input]
+    end
+    if haskey(Points.y, s)
+        push!(Points.y[s], cutData_dic[s].objVal)
+    else
+        Points.y[s] = [cutData_dic[s].objVal]
     end
 end
 
