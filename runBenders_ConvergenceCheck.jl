@@ -1,4 +1,4 @@
-using AnyMOD, Gurobi, CSV, YAML
+using Gurobi, AnyMOD, CSV, YAML
 include("./IDW.jl")
 include("./functions.jl")
 
@@ -128,7 +128,9 @@ while true
 	str_time = now()
 	resData_obj, stabVar_obj = @suppress runTop(benders_obj); 
 	elpTop_time = now() - str_time
-    
+    if benders_obj.itr.cnt.i == 19
+        printObject(benders_obj.top.parts.obj.cns[:bendersCuts],benders_obj.top)
+    end
     #endregion#
 
     ##############################################################
@@ -153,7 +155,7 @@ while true
     if benders_obj.itr.cnt.i>2
         for row in eachrow(cutVar_df)
             if surroSelect_sym == :IDW_cc
-                row.sur = computeIDW(Points_x[(row.Ts_dis, row.scr)], Points_y[(row.Ts_dis, row.scr)], input)
+                row.sur = computeIDW(Points.x[(row.Ts_dis, row.scr)], Points.y[(row.Ts_dis, row.scr)], input)
             end
         end 
     end
@@ -203,7 +205,6 @@ while true
             else
                 cutData_dic[s] = resData()
                 #cutData_dic[s].objVal = first(temp_track_itr[(temp_track_itr[!,:Ts_dis] .== s[1]) .& (temp_track_itr[!,:scr] .== s[2]), :actCost])
-				#cutData_dic[s].objVal = Inf
 			end	
 		end		
 	end

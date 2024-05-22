@@ -129,6 +129,10 @@ while true
 	resData_obj, stabVar_obj = @suppress runTop(benders_obj); 
 	elpTop_time = now() - str_time
 
+    if benders_obj.itr.cnt.i == 19
+        printObject(benders_obj.top.parts.obj.cns[:bendersCuts],benders_obj.top)
+    end
+
 	# start solving sub-problems
 	cutData_dic = Dict{Tuple{Int64,Int64},resData}()
 	timeSub_dic = Dict{Tuple{Int64,Int64},Millisecond}()
@@ -277,6 +281,7 @@ for (i,element) in enumerate(inputvr)
         append!(capa_track, DataFrame(i = i, Symbol = key, value = value))
     end
 end
+
 
 CSV.write(benders_obj.report.mod.options.outDir * "/iterationBenders_$(benders_obj.info.name).csv", benders_obj.report.itr)
 CSV.write(benders_obj.report.mod.options.outDir * "/trackingSub_$(benders_obj.info.name).csv", trackSub_df)
