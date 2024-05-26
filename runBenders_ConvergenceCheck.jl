@@ -46,6 +46,7 @@ end
 iniStab_ntup = (setup = :reduced, det = true) # options to initialize stabilization, :none for first input will skip stabilization, other values control input folders, second input determines, if heuristic model is solved stochastically or not
 
 stabSetup_obj = stabSetup(meth_tup, 0.0, iniStab_ntup)
+#stabSetup_obj = stabSetup(tuple(), 0.0, iniStab_ntup)
 
 
 # ! options for near optimal
@@ -204,6 +205,7 @@ while true
                 savePoint!(Points, input, cutData_dic, s)
             else
                 cutData_dic[s] = resData()
+                cutData_dic[s].objVal = cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :sur]
                 #cutData_dic[s].objVal = first(temp_track_itr[(temp_track_itr[!,:Ts_dis] .== s[1]) .& (temp_track_itr[!,:scr] .== s[2]), :actCost])
 			end	
 		end		
@@ -227,6 +229,11 @@ while true
 
     # update results and stabilization
 	updateIteration!(benders_obj, cutData_dic, stabVar_obj)
+
+    # adjust based on actual costs of SPs (functions should work with surrogates by default)
+    #itr_obj.res[:actSubCost] = 
+	#itr_obj.res[:actTotCost] = 
+    #itr_obj.gap =
 
 	# report on iteration
 	reportBenders!(benders_obj, resData_obj, elpTop_time, timeSub_dic, lss_dic)
@@ -321,7 +328,7 @@ for (i,element) in enumerate(inputvr)
     end
 end
 
-
+transform_nothing = (col, val) -> val === nothing ? "NA" : val
 
 CSV.write(benders_obj.report.mod.options.outDir * "/iterationBenders_$(benders_obj.info.name).csv", benders_obj.report.itr)
 CSV.write(benders_obj.report.mod.options.outDir * "/trackingSub_$(benders_obj.info.name).csv", trackSub_df; transform=(col, val) -> transform_nothing(col, val))

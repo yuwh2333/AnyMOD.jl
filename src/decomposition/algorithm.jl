@@ -290,7 +290,8 @@ function runTop(benders_obj::bendersObj)
 
 	stab_obj = benders_obj.stab
 
-	if !isempty(benders_obj.cuts) 
+	#if isdefined(benders_obj, :cuts) && !isempty(benders_obj.cuts) 
+	if !isempty(benders_obj.cuts)
 		# save values of previous cut for proximal method variation 2
 		benders_obj.prevCuts = !isnothing(stab_obj) && stab_obj.method[stab_obj.actMet] == :prx2 ? copy(benders_obj.cuts) : Array{Pair{Tuple{Int,Int},Union{resData}},1}() 	
 		# add cuts and reset collecting array

@@ -46,7 +46,7 @@ end
 iniStab_ntup = (setup = :reduced, det = true) # options to initialize stabilization, :none for first input will skip stabilization, other values control input folders, second input determines, if heuristic model is solved stochastically or not
 
 stabSetup_obj = stabSetup(meth_tup, 0.0, iniStab_ntup)
-
+#stabSetup_obj = stabSetup(tuple(), 0.0, iniStab_ntup)
 
 # ! options for near optimal
 
@@ -91,17 +91,17 @@ scale_dic[:facSub] = (capa = 1e0, capaStSize = 1e2, insCapa = 1e0, dispConv = 1e
 #region # * prepare iteration
 
 # initialize distributed computing
-if algSetup_obj.dist 
-	addprocs(scr_int*2) 
-	@suppress @everywhere begin 
-		using AnyMOD, Gurobi
-		runSubDist(w_int::Int64, resData_obj::resData, sol_sym::Symbol, optTol_fl::Float64=1e-8, crsOver_boo::Bool=false, wrtRes_boo::Bool=false) = Distributed.@spawnat w_int runSub(sub_m, resData_obj, sol_sym, optTol_fl, crsOver_boo, wrtRes_boo)
-	end
-	passobj(1, workers(), [:info_ntup, :inputFolder_ntup, :scale_dic, :algSetup_obj])
+#if algSetup_obj.dist 
+#	addprocs(scr_int*2) 
+#	@suppress @everywhere begin 
+#		using AnyMOD, Gurobi
+#		runSubDist(w_int::Int64, resData_obj::resData, sol_sym::Symbol, optTol_fl::Float64=1e-8, crsOver_boo::Bool=false, wrtRes_boo::Bool=false) = Distributed.@spawnat w_int runSub(sub_m, resData_obj, sol_sym, optTol_fl, crsOver_boo, wrtRes_boo)
+#	end
+#	passobj(1, workers(), [:info_ntup, :inputFolder_ntup, :scale_dic, :algSetup_obj])
 
-else
-	runSubDist = x -> nothing
-end
+#else
+#	runSubDist = x -> nothing
+#end
 
 # create benders object
 benders_obj = bendersObj(info_ntup, inputFolder_ntup, scale_dic, algSetup_obj, stabSetup_obj, runSubDist, nearOptSetup_obj);
@@ -178,6 +178,12 @@ while true
 	# update results and stabilization
 	updateIteration!(benders_obj, cutData_dic, stabVar_obj)
 
+    # adjust based on actual costs of SPs (functions should work with surrogates by default)
+    benders_obj.itr.res[:actSubCost] = sum(map(x -> x.objVal, values(cutData_dic)))
+	benders_obj.itr.res[:actTotCost] = benders_obj.itr.res[:actSubCost] + benders_obj.itr.res[:topCost]
+    benders_obj.itr.gap = benders_obj.nearOpt.cnt == 0 ? (1 - benders_obj.itr.res[:lowLimCost] / benders_obj.itr.res[:curBest]) : abs(benders_obj.itr.res[:curBest] / benders_obj.itr.res[:optCost])
+
+
 	# report on iteration
 	reportBenders!(benders_obj, resData_obj, elpTop_time, timeSub_dic, lss_dic)
 
@@ -193,7 +199,7 @@ while true
 	cutVar_df[!,:actCost] = map(x -> cutData_dic[(x.Ts_dis, x.scr)].objVal, eachrow(cutVar_df))
 	cutVar_df[!,:timeSub] = map(x -> timeSub_dic[(x.Ts_dis, x.scr)], eachrow(cutVar_df))
     cutVar_df[!,:sur] .= 0.0
-    if benders_obj.itr.cnt.i>2
+    if benders_obj.itr.cnt.i>1
         #compute surrogates
         for row in eachrow(cutVar_df)
             if surroSelect_sym == :IDW
@@ -211,6 +217,14 @@ while true
     end
     cutVar_df[!,:diff] = cutVar_df[!,:sur]  .- cutVar_df[!,:estCost]
     
+    
+    for (id,s) in enumerate(collect(keys(benders_obj.sub)))
+        if ! (s in cut_group)
+            cutData_dic[s].objVal = cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :sur][1]
+        end
+    end
+
+    
     #handel the situation the difference is negative
     #cutVar_df[!,:diff] = map(x -> abs(x.diff), eachrow(cutVar_df))
     for row in eachrow(cutVar_df)
@@ -227,7 +241,7 @@ while true
 	# find case with biggest difference
 	sMaxDiff_tup = tuple((cutVar_df[findall(maximum(cutVar_df[!,:diff]) .== cutVar_df[!,:diff]), :] |> (z -> map(x -> z[1,x], [:Ts_dis, :scr])))...)
 	cutVar_df[!,:maxDiff] = map(x -> sMaxDiff_tup == (x.Ts_dis, x.scr), eachrow(cutVar_df))
-    if benders_obj.itr.cnt.i>2
+    if benders_obj.itr.cnt.i>1
         empty!(cut_group)
         push!(cut_group, sMaxDiff_tup)
     end
@@ -244,7 +258,7 @@ while true
     end
 
     #delete specific cuts
-    if benders_obj.itr.cnt.i>2 
+    if benders_obj.itr.cnt.i>1 
         filter!(x -> x[1] in cut_group, benders_obj.cuts)
     end
 
