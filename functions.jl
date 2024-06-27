@@ -52,25 +52,48 @@ function saveDual(cutData_dic, cut_group, resData_obj, benders_obj, dualvr)
     end
 end
 
-mutable struct PointsData
-    x::Dict{Tuple{Int64,Int64}, Vector{Dict}}
-    y::Dict{Tuple{Int64,Int64}, Vector{Float64}}
-    function PointsData()
-        new(Dict{Tuple{Int64,Int64}, Vector{Dict}}(), Dict{Tuple{Int64,Int64}, Vector{Float64}}())
+mutable struct actStatus
+    check_Conv :: Bool
+    rtn_boo :: Bool
+    last_stab_obj :: Float64
+    real_benders_best_obj :: Float64
+    function actStatus()
+        new(false, false, Inf, Inf)
     end
 end
 
-function savePoint!(Points, input, cutData_dic,s)
-    if haskey(Points.x, s)
-        push!(Points.x[s], input)
-    else
-        Points.x[s] = [input]
+mutable struct SubObj
+    x:: Vector{Dict}
+    z:: Vector{Float64}
+    actItr:: Int64
+    function SubObj()
+        sub_obj = new()
+        sub_obj.x = Vector{Dict}()
+        sub_obj.z = Vector{Float64}()
+        sub_obj.actItr = 0
+        return sub_obj
     end
-    if haskey(Points.y, s)
-        push!(Points.y[s], cutData_dic[s].objVal)
-    else
-        Points.y[s] = [cutData_dic[s].objVal]
+end
+
+function savePoint!(SubData, input, cutData_dic,s)
+    push!(SubData.x, input)
+    push!(SubData.z, cutData_dic[s].objVal)
+end
+
+function L2NormDict(x1::Dict,x2::Dict)
+    d = 0
+    for (key,value) in x1
+        if key in keys(x2)
+            d += (value-x2[key])^2
+        else
+            d += (value)^2
+        end
     end
+    return sqrt(d)
+end
+
+function L1NormDict(x1::Dict)
+    return sum(values(x1))
 end
 
 
