@@ -7,7 +7,7 @@ b = "C:/Users/23836/Desktop/Git/EuSysMod/"
 # ! options for general algorithm
 
 # target gap, number of iteration after unused cut is deleted, valid inequalities, number of iterations report is written, time-limit for algorithm, distributed computing?, number of threads, optimizer
-algSetup_obj = algSetup(0.01, 20, (bal = false, st = false), 10, 120.0, false, 4, Gurobi.Optimizer)
+algSetup_obj = algSetup(0.01, 20, (bal = false, st = false), 10, 120.0, true, 4, Gurobi.Optimizer)
 
 # ! options for stabilization
 
@@ -42,7 +42,7 @@ info_ntup = (name = name_str, frs = 0, supTsLvl = 1, shortExp = 10)
 
 # ! input folders
 dir_str = b
-scr_int = 6 # number of scenarios
+scr_int = 4 # number of scenarios
 res_int = 96
 
 inDir_arr = [dir_str * "_basis",dir_str * "_full",dir_str * "timeSeries/" * string(res_int) * "hours_s" * string(scr_int), dir_str * "timeSeries/" * string(res_int) * "hours_det"] # input directory
@@ -155,7 +155,7 @@ while true
 	# update results and stabilization
 	updateIteration!(benders_obj, cutData_dic, stabVar_obj)
 	#apply single cut
-	filter!(x -> x[1] == sLargeDif_tup, benders_obj.cuts)
+	#filter!(x -> x[1] == sLargeDif_tup, benders_obj.cuts)
 
 
 	# report on iteration
@@ -175,7 +175,7 @@ end	#endofiteration
 for itr in track_itr
 	append!(track_df, itr)
 end
-CSV.write("track_df_s6.csv",track_df)
+CSV.write("track_df_s4.csv",track_df)
 
 
 benders_obj.report.itr

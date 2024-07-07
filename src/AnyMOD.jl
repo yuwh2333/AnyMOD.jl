@@ -3,7 +3,7 @@ module AnyMOD
     # ! enforce use of Julia's own python distribution to avoid interference with local python installations
     using Pkg
 
-    using Base.Threads, CSV, Dates, LinearAlgebra, Requires, DelimitedFiles, YAML, CategoricalArrays, Plotly
+    using Base.Threads, CSV, Dates, LinearAlgebra, Requires, DelimitedFiles, YAML, CategoricalArrays
     using MathOptInterface, Reexport, Statistics, SparseArrays, Suppressor
     @reexport using DataFrames, JuMP, Dates, Suppressor, Distributed, ParallelDataTransfer
 

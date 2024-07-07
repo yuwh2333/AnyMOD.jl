@@ -35,7 +35,11 @@
             d = sqrt(d)
             push!(dis,d)
         end
-        return y_train[argmin(dis)]
+        if !isempty(dis)
+            return y_train[argmin(dis)]
+        else
+            return 0
+        end
     end
 
     function computedualIDW(x_train::Vector{Dict}, y_train::Vector{Float64}, x::Dict, dual_dic::Vector{Dict})
