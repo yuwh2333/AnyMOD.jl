@@ -30,7 +30,7 @@ b = "C:/Users/23836/Desktop/git/EuSysMod/"
 # ! options for general algorithm
 
 # target gap, number of iteration after unused cut is deleted, valid inequalities, number of iterations report is written, time-limit for algorithm, distributed computing?, surrogateBenders?, number of threads, optimizer
-algSetup_obj = algSetup(gap, 20, (bal = false, st = false), 10, 120.0, true, false, t_int, Gurobi.Optimizer)
+algSetup_obj = algSetup(gap, 20, (bal = false, st = false), 10, 120.0, false, false, t_int, Gurobi.Optimizer)
 
 # ! options for stabilization
 
@@ -95,9 +95,9 @@ scale_dic[:facSub] = (capa = 1e0, capaStSize = 1e2, insCapa = 1e0, dispConv = 1e
 
 # initialize distributed computing
 if algSetup_obj.dist 
-    addprocs(SlurmManager(; launch_timeout = 300), exeflags="--heap-size-hint=30G", nodes=scr_int+1, ntasks=scr_int+1, ntasks_per_node=1, cpus_per_task=4, mem_per_cpu="8G", time=4380) # add all available nodes
-	rmprocs(wrkCnt + 2) # remove one node again for main process
-	#addprocs(scr_int) 
+    #addprocs(SlurmManager(; launch_timeout = 300), exeflags="--heap-size-hint=30G", nodes=scr_int+1, ntasks=scr_int+1, ntasks_per_node=1, cpus_per_task=4, mem_per_cpu="8G", time=4380) # add all available nodes
+	#rmprocs(5) # remove one node again for main process
+	addprocs(scr_int) 
 	@suppress @everywhere begin 
 		using AnyMOD, Gurobi
 		runSubDist(w_int::Int64, resData_obj::resData, sol_sym::Symbol, optTol_fl::Float64=1e-8, crsOver_boo::Bool=false, wrtRes_boo::Bool=false) = Distributed.@spawnat w_int runSub(sub_m, resData_obj, sol_sym, optTol_fl, crsOver_boo, wrtRes_boo)
@@ -161,11 +161,14 @@ while true
     #compute surrogates
     if benders_obj.itr.cnt.i>2
         for row in eachrow(cutVar_df)
-            if surroSelect_sym == :IDW_cc 
-                row.sur = computeIDW(subData[(row.Ts_dis, row.scr)].x, subData[(row.Ts_dis, row.scr)].z, input)
+            if surroSelect_sym == :IDW_cc || surroSelect_sym == :IDW_simu
+                row.sur = computeIDW(subData[(row.Ts_dis, row.scr)].x, subData[(row.Ts_dis, row.scr)].z, input, par_df[id_int,:p])
             end
-            if surroSelect_sym == :NN_cc 
+            if surroSelect_sym == :NN_cc || surroSelect_sym == :NN_simu
                 row.sur = computeNN(subData[(row.Ts_dis, row.scr)].x, subData[(row.Ts_dis, row.scr)].z, input)
+            end
+            if surroSelect_sym == :extra || surroSelect_sym == :extra_simu
+                row.sur = computelinearextra(subData[(row.Ts_dis, row.scr)].x, subData[(row.Ts_dis, row.scr)].z, input)
             end
         end        
     end
@@ -211,11 +214,11 @@ while true
 	if benders_obj.algOpt.dist futData_dic = Dict{Tuple{Int64,Int64},Future}() end
 	for (id,s) in enumerate(collect(keys(benders_obj.sub)))
 		if benders_obj.algOpt.dist # distributed case
-            if s in cut_group
+            if s in cut_group || surroSelect_sym == :NN_simu || surroSelect_sym == :IDW_simu || surroSelect_sym == :extra_NN
 			    futData_dic[s] = runSubDist(id + 1, copy(resData_obj), :barrier, 1e-8)
             end
 		else # non-distributed case
-			if s in cut_group 
+			if s in cut_group || surroSelect_sym == :NN_simu || surroSelect_sym == :IDW_simu || surroSelect_sym == :extra_NN
 			    cutData_dic[s], timeSub_dic[s], lss_dic[s] = runSub(benders_obj.sub[s], copy(resData_obj), :barrier, 1e-8)
                 #save the input and output in Points for subproblems solved as previous data
                 savePoint!(subData[s], input, cutData_dic, s)
@@ -271,7 +274,7 @@ while true
     #add actual costs for subproblems really solved
     insertcols!(cutVar_df, :actCost => Vector{Union{Nothing, Float64}}(nothing, nrow(cutVar_df)))
     for row in eachrow(cutVar_df)
-        if (row[:Ts_dis], row[:scr]) in cut_group
+        if (row[:Ts_dis], row[:scr]) in cut_group || surroSelect_sym == :NN_simu || surroSelect_sym == :IDW_simu || surroSelect_sym == :extra_simu
             row[:actCost] = cutData_dic[(row[:Ts_dis], row[:scr])].objVal
             row[:timeSub] = timeSub_dic[(row[:Ts_dis], row[:scr])]     
         end
