@@ -136,6 +136,33 @@
         end
     end
 
+    function computenopola(x_train::Vector{Dict},y_train::Vector{Float64}, x::Dict)
+        L2_dis = []
+        #compute l2norm to all training datas
+        for i in 1:length(x_train)
+            d = 0
+            for (key,value) in x
+                d += (value - x_train[i][key])^2
+            end
+            d = sqrt(d)
+            push!(L2_dis,d)
+        end
+        L1_x = sum(values(x))
+        #if x has the smallest L1-Norm, then do the extrapolation
+        extra_boo = true
+        for i in 1:length(x_train)
+            if L1_x > sum(values(x_train[i]))
+                extra_boo = false
+            end
+        end
+        if extra_boo == true
+            return computeNN(x_train, y_train,x)
+        elseif length(y_train) == 1
+                return y_train[1]
+        else          
+            return y_train[length(y_train)]
+        end
+    end
 
 
 

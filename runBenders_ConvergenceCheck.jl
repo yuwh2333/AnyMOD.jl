@@ -11,7 +11,7 @@ par_df = CSV.read("settings_surro.csv",DataFrame)
 
 if isempty(ARGS)
     id_int = 1
-    t_int = 4
+    t_int = 7
 else
     id_int = parse(Int,ARGS[1])
     t_int = parse(Int,ARGS[2]) # number of threads
@@ -91,12 +91,13 @@ scale_dic[:facSub] = (capa = 1e0, capaStSize = 1e2, insCapa = 1e0, dispConv = 1e
 
 #endregion
 
-#region # * prepare iteration
 
+#region # * prepare iteration
+wrkCnt = scr_int #（equal to number of scenarios)
 # initialize distributed computing
 if algSetup_obj.dist 
-    #addprocs(SlurmManager(; launch_timeout = 300), exeflags="--heap-size-hint=30G", nodes=scr_int+1, ntasks=scr_int+1, ntasks_per_node=1, cpus_per_task=4, mem_per_cpu="8G", time=4380) # add all available nodes
-	#rmprocs(5) # remove one node again for main process
+    #addprocs(SlurmManager(; launch_timeout = 300), exeflags="--heap-size-hint=30G", nodes=1, ntasks=1, ntasks_per_node=1, cpus_per_task=4, mem_per_cpu="8G", time=4380) # add all available nodes
+	#rmprocs(wrkCnt + 2) # remove one node again for main process
 	addprocs(scr_int) 
 	@suppress @everywhere begin 
 		using AnyMOD, Gurobi
@@ -169,6 +170,9 @@ while true
             end
             if surroSelect_sym == :extra || surroSelect_sym == :extra_simu
                 row.sur = computelinearextra(subData[(row.Ts_dis, row.scr)].x, subData[(row.Ts_dis, row.scr)].z, input)
+            end
+            if surroSelect_sym == :nopola
+                row.sur = computenopola(subData[(row.Ts_dis, row.scr)].x, subData[(row.Ts_dis, row.scr)].z, input)
             end
         end        
     end
