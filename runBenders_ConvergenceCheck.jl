@@ -30,7 +30,7 @@ b = "C:/Users/23836/Desktop/git/EuSysMod/"
 # ! options for general algorithm
 
 # target gap, number of iteration after unused cut is deleted, valid inequalities, number of iterations report is written, time-limit for algorithm, distributed computing?, surrogateBenders?, number of threads, optimizer
-algSetup_obj = algSetup(gap, 20, (bal = false, st = false), 10, 120.0, false, false, t_int, Gurobi.Optimizer)
+algSetup_obj = algSetup(gap, 20, (bal = false, st = false), 10, 120.0, true, false, t_int, Gurobi.Optimizer)
 
 # ! options for stabilization
 
@@ -225,8 +225,10 @@ while true
 			if s in cut_group || surroSelect_sym == :NN_simu || surroSelect_sym == :IDW_simu || surroSelect_sym == :extra_NN
 			    cutData_dic[s], timeSub_dic[s], lss_dic[s] = runSub(benders_obj.sub[s], copy(resData_obj), :barrier, 1e-8)
                 #save the input and output in Points for subproblems solved as previous data
-                savePoint!(subData[s], input, cutData_dic, s)
-                subData[s].actItr = benders_obj.itr.cnt.i
+                if s in cut_group
+                    savePoint!(subData[s], input, cutData_dic, s)
+                    subData[s].actItr = benders_obj.itr.cnt.i
+                end
             else
                 cutData_dic[s] = resData()
                 cutData_dic[s].objVal = cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :sur][1]

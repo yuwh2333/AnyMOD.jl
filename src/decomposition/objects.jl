@@ -188,7 +188,7 @@ mutable struct bendersObj
 		
 
 		sub_tup = tuple([(x.Ts_dis, x.scr) for x in eachrow(top_m.parts.obj.par[:scrProb].data)]...) # get all time-step/scenario combinations
-		passobj(1, workers(), [:sub_tup])
+		#passobj(1, workers(), [:sub_tup])
 
 		# creation of sub-problems
 
@@ -198,11 +198,11 @@ mutable struct bendersObj
 			if benders_obj.algOpt.dist # distributed case
 				#build the worker for all subproblems for surrogates case
 				if benders_obj.algOpt.surrogateBenders
-					benders_obj.sub[s] = @spawnat :any begin
-        				for (id_int, s) in enumerate(sub_tup)
-            				sub_m = buildSub(id, info_ntup, inputFolder_ntup, scale_dic, algSetup_obj)
-        				end
-   					end
+				#	benders_obj.sub[s] = @async id+1 begin
+        		#		for (id_int, s) in enumerate(sub_tup)
+            	#			sub_m = buildSub(id, info_ntup, inputFolder_ntup, scale_dic, algSetup_obj)
+        		#		end
+   				#	end
 				else
 					benders_obj.sub[s] = @async @everywhere id + 1 begin #id+1: id for the worker
 						id_int = myid() - 1 # id for the subproblem
