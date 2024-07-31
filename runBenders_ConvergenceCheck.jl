@@ -1,6 +1,6 @@
 using Gurobi, AnyMOD, CSV, YAML, SlurmClusterManager, InteractiveUtils
 
-include("./IDW.jl")
+
 include("./functions.jl")
 
 
@@ -30,7 +30,7 @@ b = "C:/Users/23836/Desktop/git/EuSysMod/"
 # ! options for general algorithm
 
 # target gap, number of iteration after unused cut is deleted, valid inequalities, number of iterations report is written, time-limit for algorithm, distributed computing?, surrogateBenders?, number of threads, optimizer
-algSetup_obj = algSetup(gap, 20, (bal = false, st = false), 10, 120.0, true, true, t_int, Gurobi.Optimizer)
+algSetup_obj = algSetup(gap, 20, (bal = false, st = false), 10, 120.0, true, false, t_int, Gurobi.Optimizer)
 
 # ! options for stabilization
 
@@ -60,7 +60,7 @@ nearOptSetup_obj = nothing # cost threshold to keep solution, lls threshold to k
 #region # * options for problem
 
 # ! general problem settings
-name_str =string("scr",scr_int, "_", res_int,"h_", surroSelect_sym,"_gap",gap)
+name_str =string("scr",scr_int, "_", res_int,"h_", surroSelect_sym, "_p", par_df[id_int,:p], "_gap",gap)
 # name, temporal resolution, level of foresight, superordinate dispatch level, length of steps between investment years
 info_ntup = (name = name_str, frs = 0, supTsLvl = 1, shortExp = 10) 
 
@@ -94,14 +94,16 @@ scale_dic[:facSub] = (capa = 1e0, capaStSize = 1e2, insCapa = 1e0, dispConv = 1e
 
 #region # * prepare iteration
 wrkCnt = scr_int #（equal to number of scenarios)
+
 # initialize distributed computing
 if algSetup_obj.dist 
     #addprocs(SlurmManager(; launch_timeout = 300), exeflags="--heap-size-hint=30G", nodes=1, ntasks=1, ntasks_per_node=1, cpus_per_task=4, mem_per_cpu="8G", time=4380) # add all available nodes
 	#rmprocs(wrkCnt + 2) # remove one node again for main process
 	addprocs(scr_int) 
+    rmprocs(wrkCnt + 2)
 	@suppress @everywhere begin 
 		using AnyMOD, Gurobi
-		runSubDist(w_int::Int64, resData_obj::resData, sol_sym::Symbol, optTol_fl::Float64=1e-8, crsOver_boo::Bool=false, wrtRes_boo::Bool=false) = Distributed.@spawnat w_int runSub(sub_m, resData_obj, sol_sym, optTol_fl, crsOver_boo, wrtRes_boo)
+		runSubDist(w_int::Int64, s::Tuple{Int64,Int64}, resData_obj::resData, sol_sym::Symbol, optTol_fl::Float64=1e-8, crsOver_boo::Bool=false, wrtRes_boo::Bool=false) = Distributed.@spawnat w_int runSub(sub_m, s, resData_obj, sol_sym, optTol_fl, crsOver_boo, wrtRes_boo)
 	end
 	passobj(1, workers(), [:info_ntup, :inputFolder_ntup, :scale_dic, :algSetup_obj])
 
@@ -134,7 +136,8 @@ while true
 	str_time = now()
 	resData_obj, stabVar_obj = @suppress runTop(benders_obj); 
 	elpTop_time = now() - str_time
-    
+
+
     #=
     #print bendersCuts
     if benders_obj.itr.cnt.i == 19
@@ -154,35 +157,8 @@ while true
     #save capacity variables
     push!(inputvr,input)
     
-    # get the estimated cost from top-problem (must be before running top problem again without stabilization!)
-	cutVar_df = copy(benders_obj.top.parts.obj.var[:cut]) 
-	cutVar_df[!,:estCost] = value.(cutVar_df)[!,:var]
-	select!(cutVar_df,Not([:var]))
-    cutVar_df[!,:timeSub].=Millisecond(0)
-    cutVar_df[!,:sur].=0.0    
-    #compute surrogates
-    if benders_obj.itr.cnt.i>2
-        for row in eachrow(cutVar_df)
-            if surroSelect_sym == :IDW_cc || surroSelect_sym == :IDW_simu
-                row.sur = computeIDW(subData[(row.Ts_dis, row.scr)].x, subData[(row.Ts_dis, row.scr)].z, input, par_df[id_int,:p])
-            end
-            if surroSelect_sym == :NN_cc || surroSelect_sym == :NN_simu
-                row.sur = computeNN(subData[(row.Ts_dis, row.scr)].x, subData[(row.Ts_dis, row.scr)].z, input)
-            end
-            if surroSelect_sym == :extra || surroSelect_sym == :extra_simu
-                row.sur = computelinearextra(subData[(row.Ts_dis, row.scr)].x, subData[(row.Ts_dis, row.scr)].z, input)
-            end
-            if surroSelect_sym == :nopola
-                row.sur = computenopola(subData[(row.Ts_dis, row.scr)].x, subData[(row.Ts_dis, row.scr)].z, input)
-            end
-        end        
-    end
-    cutVar_df[!,:diff] = cutVar_df[!,:sur]  .- cutVar_df[!,:estCost] 
-    for row in eachrow(cutVar_df) row.diff = row.diff < -1 ? 1 : row.diff end
-
-    # define maxTup / cut_group 
-    sMaxDiff_tup = tuple((cutVar_df[findall(maximum(cutVar_df[!,:diff]) .== cutVar_df[!,:diff]), :] |> (z -> map(x -> z[1,x], [:Ts_dis, :scr])))...)
-    #cutVar_df[!,:maxDiff] = map(x -> sMaxDiff_tup == (x.Ts_dis, x.scr), eachrow(cutVar_df))
+    sMaxDiff_tup, cutVar_df = computeSurrogates(benders_obj, surroSelect_sym, input, par_df, subData)
+    
     cut_group = collect(keys(benders_obj.sub))
     if surroSelect_sym == :all_cc || benders_obj.itr.cnt.i == 2 || status.check_Conv == true || surroSelect_sym == :simu || benders_obj.itr.gap < gap || surroSelect_sym == :dist
         cut_group = collect(keys(benders_obj.sub))
@@ -203,6 +179,7 @@ while true
     #    cut_group = collect(keys(benders_obj.sub))
     #end
     #record which scenario is in cut_group
+    insertcols!(cutVar_df, :actCost => Vector{Union{Nothing, Float64}}(nothing, nrow(cutVar_df)))
     cutVar_df[!,:maxDiff] = map(x -> (x.Ts_dis, x.scr) in cut_group, eachrow(cutVar_df))
 
  
@@ -219,16 +196,18 @@ while true
 	if benders_obj.algOpt.dist futData_dic = Dict{Tuple{Int64,Int64},Future}() end
 	for (id,s) in enumerate(collect(keys(benders_obj.sub)))
 		if benders_obj.algOpt.dist # distributed case
-            if s in cut_group || surroSelect_sym == :NN_simu || surroSelect_sym == :IDW_simu || surroSelect_sym == :extra_NN
-			    futData_dic[s] = runSubDist(id + 1, copy(resData_obj), :barrier, 1e-8)
-            end
+			futData_dic[s] = runSubDist(id + 1, s, copy(resData_obj), :barrier, 1e-8)
+            println("worker",id+1, "_executes job",s)
+            
+            #cutData_dic[s], timeSub_dic[s], lss_dic[s] = fetch(futData_dic[s])
 		else # non-distributed case
-			if s in cut_group || surroSelect_sym == :NN_simu || surroSelect_sym == :IDW_simu || surroSelect_sym == :extra_NN
-			    cutData_dic[s], timeSub_dic[s], lss_dic[s] = runSub(benders_obj.sub[s], copy(resData_obj), :barrier, 1e-8)
+			if s in cut_group || surroSelect_sym == :NN_simu || surroSelect_sym == :IDW_simu 
+			    cutData_dic[s], timeSub_dic[s], lss_dic[s], = runSub(benders_obj.sub[s], s, copy(resData_obj), :barrier, 1e-8)
+                cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :actCost] .= cutData_dic[s].objVal
+                cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :timeSub] .= timeSub_dic[s]
                 #save the input and output in Points for subproblems solved as previous data
                 if s in cut_group
-                    savePoint!(subData[s], input, cutData_dic, s)
-                    subData[s].actItr = benders_obj.itr.cnt.i
+                    savePoint!(subData[s], input, cutData_dic, s, benders_obj)
                 end
             else
                 cutData_dic[s] = resData()
@@ -236,29 +215,43 @@ while true
 			end	
 		end		
 	end
-		
+	
+    
 	# top-problem without stabilization
 	if !isnothing(benders_obj.stab) && benders_obj.nearOpt.cnt == 0 @suppress runTopWithoutStab!(benders_obj) end
+    
 
 	# get results of sub-problems
-	if benders_obj.algOpt.dist
+	
+    if benders_obj.algOpt.dist
 		wait.(collect(values(futData_dic)))
 		for s in collect(keys(benders_obj.sub))
-            if s in cut_group
-			    cutData_dic[s], timeSub_dic[s], lss_dic[s] = fetch(futData_dic[s])
-            end
+			cutData_dic[s], timeSub_dic[s], lss_dic[s], = fetch(futData_dic[s])
+            savePoint!(subData[s], input, cutData_dic, s, benders_obj)
 		end
 	end
+    
 
     #endregion#
 
     #########################################################
     #region # * analyse results and update refinements
     
+    # ensure the stabilization center can be correctly updated
     if cut_group == collect(keys(benders_obj.sub)) && benders_obj.itr.cnt.i>3
         benders_obj.stab.objVal = status.last_stab_obj
         benders_obj.itr.best.objVal = status.real_benders_best_obj
     end
+
+    #for simulation, use surrogates to update the stabilization center
+    if surroSelect_sym == :NN_simu || surroSelect_sym == :IDW_simu
+        for (id,s) in enumerate(collect(keys(benders_obj.sub)))
+            if !(s in cut_group)
+                cutData_dic[s].objVal = cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :sur][1]
+            end
+        end
+    end
+    
     
     # update results and stabilization
 	updateIteration!(benders_obj, cutData_dic, stabVar_obj)
@@ -272,20 +265,30 @@ while true
         benders_obj.itr.gap = benders_obj.nearOpt.cnt == 0 ? (1 - benders_obj.itr.res[:lowLimCost] / benders_obj.itr.res[:actTotCost]) : abs(benders_obj.itr.res[:actTotBest] / benders_obj.itr.res[:optCost])	
     end
 
+    if surroSelect_sym == :NN_simu || surroSelect_sym == :IDW_simu
+        real_actTotCost = sum(cutVar_df[!,:actCost]) + benders_obj.itr.res[:topCost]
+        benders_obj.itr.gap = 1 - benders_obj.itr.res[:lowLimCost] / real_actTotCost
+    end
+        
 	# report on iteration
 	reportBenders!(benders_obj, resData_obj, elpTop_time, timeSub_dic, lss_dic)
+    
+    if surroSelect_sym == :NN_simu || surroSelect_sym == :IDW_simu
+        benders_obj.itr.gap = benders_obj.nearOpt.cnt == 0 ? (1 - benders_obj.itr.res[:lowLimCost] / benders_obj.itr.res[:actTotCost]) : abs(benders_obj.itr.res[:actTotBest] / benders_obj.itr.res[:optCost])	
+    end
 
 	#endregion
 
     #################################################
     #add actual costs for subproblems really solved
-    insertcols!(cutVar_df, :actCost => Vector{Union{Nothing, Float64}}(nothing, nrow(cutVar_df)))
+    
     for row in eachrow(cutVar_df)
-        if (row[:Ts_dis], row[:scr]) in cut_group || surroSelect_sym == :NN_simu || surroSelect_sym == :IDW_simu || surroSelect_sym == :extra_simu
+        if (row[:Ts_dis], row[:scr]) in cut_group 
             row[:actCost] = cutData_dic[(row[:Ts_dis], row[:scr])].objVal
             row[:timeSub] = timeSub_dic[(row[:Ts_dis], row[:scr])]     
         end
     end   
+    
    
     #simulation
     if surroSelect_sym == :simu
@@ -294,7 +297,7 @@ while true
     end
     
     #define specific cuts
-    if benders_obj.itr.cnt.i>2 
+    if benders_obj.itr.cnt.i>2 && benders_obj.algOpt.dist == false
         if surroSelect_sym == :simu 
             filter!(x -> x[1] == sMaxDiff_tup, benders_obj.cuts)
         else

@@ -46,12 +46,13 @@ function initializeStab!(benders_obj::bendersObj, stabSetup_obj::stabSetup, inpu
 		if benders_obj.algOpt.dist futData_dic = Dict{Tuple{Int64,Int64},Future}() end
 		time_dic = Dict{Tuple{Int64,Int64},Millisecond}()
 		
+		println(enumerate(collect(keys(benders_obj.sub))))
 		# solve sub-problems
 		for (id,s) in enumerate(collect(keys(benders_obj.sub)))
 			if benders_obj.algOpt.dist # distributed case
-				futData_dic[s] = runSubDist(id + 1, copy(startSol_obj), :barrier, 1e-8)
+				futData_dic[s] = runSubDist(id + 1, s, copy(startSol_obj), :barrier, 1e-8)
 			else # non-distributed case
-				cutData_dic[s], time_dic[s], ~ = runSub(benders_obj.sub[s], copy(startSol_obj), :barrier, 1e-8)
+				cutData_dic[s], time_dic[s], ~ = runSub(benders_obj.sub[s], s, copy(startSol_obj), :barrier, 1e-8)
 			end
 		end
 		

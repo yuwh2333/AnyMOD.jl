@@ -190,33 +190,53 @@ mutable struct bendersObj
 		@everywhere begin
 			sub_tup = $sub_tup
 		end
+		println(sub_tup)
 
 		#passobj(1, workers(), [:sub_tup])
 
 		# creation of sub-problems
 
 		produceMessage(report_m.options,report_m.report, 1," - Started creation of sub-problems", testErr = false, printErr = false)
-		benders_obj.sub = Dict{Tuple{Int,Int},Union{Future,Task,anyModel}}()
-		for (id, s) in enumerate(sub_tup)
+		benders_obj.sub = Dict{Tuple{Int,Int}, Union{Future, Task, anyModel}}()
+		placeholder_task = @async begin end
+
+		# Populate benders_obj.sub with the keys from sub_tup, setting initial values to the placeholder
+		if benders_obj.algOpt.dist
+			for s in sub_tup
+    			benders_obj.sub[s] = placeholder_task
+			end
+		end
+
+
+		#=
+		@async @everywhere for (id, s) in enumerate(sub_tup)
+			benders_obj[:subs][s] = RemoteChannel(()->Channel{Any}(1))
+		end
+		=#
+		futData_arr = Future[]
+		for (id, scr) in enumerate(sub_tup)
 			if benders_obj.algOpt.dist # distributed case
 				#build the worker for all subproblems for surrogates case
-				if benders_obj.algOpt.surrogateBenders
-					benders_obj.sub[s] = @async @everywhere id+1 begin
-        				for (id_int, s) in enumerate(sub_tup)
-            				sub_m = buildSub(id_int, info_ntup, inputFolder_ntup, scale_dic, algSetup_obj)
-        				end
-   					end
+				if benders_obj.algOpt.surrogateBenders				
+					fut = @spawnat id + 1 begin #id+1: id for the worker
+						global sub_model = Dict{Tuple{Int64,Int64},anyModel}()
+						for (id_int,s) in enumerate(sub_tup)
+							sub_model[s] = buildSub(id_int, info_ntup, inputFolder_ntup, scale_dic, algSetup_obj)
+							println("sub_m of sub_",s,"on worker",id+1,"creating, actual scr:", sub_model[s].subPro)
+						end
+					end
+					push!(futData_arr,fut)
 				else
-					benders_obj.sub[s] = @async @everywhere id + 1 begin #id+1: id for the worker
+					benders_obj.sub[scr] = @async @everywhere id + 1 begin #id+1: id for the worker
 						id_int = myid() - 1 # id for the subproblem
 						sub_m = buildSub(id_int, info_ntup, inputFolder_ntup, scale_dic, algSetup_obj)
 					end
 				end
 			else # non-distributed case
-				benders_obj.sub[s] = buildSub(id, info_ntup, inputFolder_ntup, scale_dic, algSetup_obj)
+				benders_obj.sub[scr] = buildSub(id, info_ntup, inputFolder_ntup, scale_dic, algSetup_obj)
 			end
 		end
-		
+
 		# finish creation of top-problems
 		top_m.subPro = tuple(0, 0)
 		@suppress prepareMod!(top_m, benders_obj.algOpt.opt, benders_obj.algOpt.threads)
@@ -227,7 +247,14 @@ mutable struct bendersObj
 		benders_obj.top = top_m
 
 		# wait for construction of sub-problems
-		if benders_obj.algOpt.dist wait.(collect(values(benders_obj.sub))) end
+		if benders_obj.algOpt.dist 
+			if benders_obj.algOpt.surrogateBenders
+				wait.(futData_arr)
+			else
+				wait.(collect(values(benders_obj.sub)))
+			end
+		end
+		
 
 		produceMessage(report_m.options,report_m.report, 1," - Finished creation of top-problem and sub-problems", testErr = false, printErr = false)
 	

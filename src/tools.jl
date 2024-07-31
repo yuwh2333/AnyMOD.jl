@@ -1769,8 +1769,5 @@ printIIS(model_object::anyModel)
 
 Uses Gurobi's computeIIS function to determine the constraints of the optimization problem that cause infeasibility.
 """
-function printIIS(anyM::anyModel, d::Int)
-end
-
 # ! checks termination status and computes and prints IIS if infeasible
 checkIIS(mod_m::anyModel) = if termination_status(mod_m.optModel) in (MOI.INFEASIBLE, MOI.INFEASIBLE_OR_UNBOUNDED) && isdefined(AnyMOD, :printIIS) printIIS(mod_m) end

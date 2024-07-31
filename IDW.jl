@@ -148,17 +148,15 @@
             push!(L2_dis,d)
         end
         L1_x = sum(values(x))
-        #if x has the smallest L1-Norm, then do the extrapolation
-        extra_boo = true
+        #if x has the smallest L1-Norm, then don't do interpolation
+        no_boo = true
         for i in 1:length(x_train)
             if L1_x > sum(values(x_train[i]))
-                extra_boo = false
+                no_boo = false
             end
         end
-        if extra_boo == true
+        if no_boo == false
             return computeNN(x_train, y_train,x)
-        elseif length(y_train) == 1
-                return y_train[1]
         else          
             return y_train[length(y_train)]
         end

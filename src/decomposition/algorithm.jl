@@ -382,8 +382,13 @@ function runTop(benders_obj::bendersObj)
 	return resData_obj, stabVar_obj
 end
 
+# ! run sub-problem on worker (sub_m is a global variable at package scope)
+function runSub(s::Tuple{Int64,Int64}, resData_obj::resData, sol_sym::Symbol, optTol_fl::Float64=1e-8, crsOver_boo::Bool=false, wrtRes_boo::Bool=false)
+	return runSub(sub_model[s], s, resData_obj, sol_sym, optTol_fl, crsOver_boo, wrtRes_boo)
+end
+
 # ! run sub-problem
-function runSub(sub_m::anyModel, resData_obj::resData, sol_sym::Symbol, optTol_fl::Float64=1e-8, crsOver_boo::Bool=false, wrtRes_boo::Bool=false)
+function runSub(sub_m::anyModel, s::Tuple{Int64,Int64}, resData_obj::resData, sol_sym::Symbol, optTol_fl::Float64=1e-8, crsOver_boo::Bool=false, wrtRes_boo::Bool=false)
 
 	str_time = now()
 
@@ -505,7 +510,7 @@ function runSub(sub_m::anyModel, resData_obj::resData, sol_sym::Symbol, optTol_f
 	lss_fl = sum(value.(sub_m.parts.bal.var[:lss][!,:var]))
 	elpSub_time = now() - str_time
 
-	return resData_obj, elpSub_time, lss_fl
+	return resData_obj, elpSub_time, lss_fl, s, sub_m.subPro
 end
 
 # ! add all cuts from input dictionary to top problem
