@@ -30,7 +30,7 @@ b = "C:/Users/23836/Desktop/git/EuSysMod/"
 # ! options for general algorithm
 
 # target gap, number of iteration after unused cut is deleted, valid inequalities, number of iterations report is written, time-limit for algorithm, distributed computing?, surrogateBenders?, number of threads, optimizer
-algSetup_obj = algSetup(gap, 20, (bal = false, st = false), 10, 120.0, true, false, t_int, Gurobi.Optimizer)
+algSetup_obj = algSetup(gap, 20, (bal = false, st = false), 10, 120.0, true, true, t_int, Gurobi.Optimizer)
 
 # ! options for stabilization
 
@@ -103,7 +103,7 @@ if algSetup_obj.dist
     rmprocs(wrkCnt + 2)
 	@suppress @everywhere begin 
 		using AnyMOD, Gurobi
-		runSubDist(w_int::Int64, s::Tuple{Int64,Int64}, resData_obj::resData, sol_sym::Symbol, optTol_fl::Float64=1e-8, crsOver_boo::Bool=false, wrtRes_boo::Bool=false) = Distributed.@spawnat w_int runSub(sub_m, s, resData_obj, sol_sym, optTol_fl, crsOver_boo, wrtRes_boo)
+		runSubDist(w_int::Int64, s::Tuple{Int64,Int64}, resData_obj::resData, sol_sym::Symbol, optTol_fl::Float64=1e-8, crsOver_boo::Bool=false, wrtRes_boo::Bool=false) = Distributed.@spawnat w_int runSub(s, resData_obj, sol_sym, optTol_fl, crsOver_boo, wrtRes_boo)
 	end
 	passobj(1, workers(), [:info_ntup, :inputFolder_ntup, :scale_dic, :algSetup_obj])
 
@@ -138,12 +138,12 @@ while true
 	elpTop_time = now() - str_time
 
 
-    #=
+    
     #print bendersCuts
     if benders_obj.itr.cnt.i == 19
         printObject(benders_obj.top.parts.obj.cns[:bendersCuts],benders_obj.top)
     end
-    =#
+    
 
     #endregion#
 

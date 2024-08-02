@@ -136,8 +136,7 @@ while true
     str_time = now()
 	resData_obj, stabVar_obj = @suppress runTop(benders_obj); 
 	elpTop_time = now() - str_time
-
-        
+      
     #save capacity variables from top problem
     input = resDatatoDict(resData_obj)
     push!(inputvr,input)
@@ -146,7 +145,6 @@ while true
 
     # top-problem without stabilization
     if !isnothing(benders_obj.stab) && benders_obj.nearOpt.cnt == 0 @suppress runTopWithoutStab!(benders_obj) end
-
     
     #region # * i=2
     if benders_obj.itr.cnt.i == 2 || status.check_Conv == true
@@ -167,7 +165,7 @@ while true
 		    else # non-distributed case
 		    end		
         end
-       
+      
 	    # get results of sub-problems
 		wait.(collect(values(futData_dic)))
 		for s in collect(keys(benders_obj.sub))
@@ -177,10 +175,10 @@ while true
 		end
 
         # ensure the stabilization center can be correctly updated
-        #if benders_obj.itr.cnt.i>3
-        #    benders_obj.stab.objVal = status.last_stab_obj
-        #    benders_obj.itr.best.objVal = status.real_benders_best_obj
-        #end
+        if benders_obj.itr.cnt.i>3
+            benders_obj.stab.objVal = status.last_stab_obj
+            benders_obj.itr.best.objVal = status.real_benders_best_obj
+        end
         updateIteration!(benders_obj, cutData_dic, stabVar_obj)
         
         #convergence check
@@ -200,24 +198,21 @@ while true
         cutVar_df[!,:i] .= benders_obj.itr.cnt.i
         append!(trackSub_df, cutVar_df)
 
-        filter!(x -> x[1] in collect(keys(benders_obj.sub)), benders_obj.cuts)
+        #filter!(x -> x[1] in collect(keys(benders_obj.sub)), benders_obj.cuts)
         if status.rtn_boo break end        
         benders_obj.itr.cnt.i = benders_obj.itr.cnt.i + 1
-
-        
 
         #solve top problem
         str_time = now()
 	    resData_obj, stabVar_obj = @suppress runTop(benders_obj); 
 	    elpTop_time = now() - str_time
 
-        #=
         # print bendersCuts
         if benders_obj.itr.cnt.i == 19
             printObject(benders_obj.top.parts.obj.cns[:bendersCuts],benders_obj.top)
         end
-        =#
         
+    
         #save capacity variables from top problem
         input = resDatatoDict(resData_obj)
         status.check_Conv = length(inputvr)>1 && L2NormDict(input,inputvr[length(inputvr)]) < sqrt(10*length(input)) ? true : false
