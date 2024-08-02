@@ -128,6 +128,7 @@ for (id,s) in enumerate(collect(keys(benders_obj.sub)))
     subData[s] = SubObj() 
     worker_status[id+1] = true
 end
+
 while true
 
 	produceMessage(benders_obj.report.mod.options, benders_obj.report.mod.report, 1, " - Started iteration $(benders_obj.itr.cnt.i)", testErr = false, printErr = false)
@@ -137,7 +138,7 @@ while true
 	resData_obj, stabVar_obj = @suppress runTop(benders_obj); 
 	elpTop_time = now() - str_time
       
-    #save capacity variables from top problem
+    #save top problem results
     input = resDatatoDict(resData_obj)
     push!(inputvr,input)
     #compute surrogates and save the result in cutVar_df
@@ -186,15 +187,14 @@ while true
         status.rtn_boo = checkConvergence(benders_obj, lss_dic)
         reportBenders!(benders_obj, resData_obj, elpTop_time, timeSub_dic, lss_dic)
 
-        #compute actCost
+        #compute actual costs and save 
         insertcols!(cutVar_df, :actCost => Vector{Union{Nothing, Float64}}(nothing, nrow(cutVar_df)))
         for row in eachrow(cutVar_df)
             row[:actCost] = cutData_dic[(row[:Ts_dis], row[:scr])].objVal
             row[:timeSub] = timeSub_dic[(row[:Ts_dis], row[:scr])]
             row[:diff] = row[:actCost]  .- row[:estCost]   
         end
-        cutVar_df[!,:maxDiff] .= true
-        
+        cutVar_df[!,:maxDiff] .= true       
         cutVar_df[!,:i] .= benders_obj.itr.cnt.i
         append!(trackSub_df, cutVar_df)
 
@@ -202,7 +202,7 @@ while true
         if status.rtn_boo break end        
         benders_obj.itr.cnt.i = benders_obj.itr.cnt.i + 1
 
-        #solve top problem
+        #region# * solve top problem
         str_time = now()
 	    resData_obj, stabVar_obj = @suppress runTop(benders_obj); 
 	    elpTop_time = now() - str_time
@@ -212,8 +212,7 @@ while true
             printObject(benders_obj.top.parts.obj.cns[:bendersCuts],benders_obj.top)
         end
         
-    
-        #save capacity variables from top problem
+        #save top problem results
         input = resDatatoDict(resData_obj)
         status.check_Conv = length(inputvr)>1 && L2NormDict(input,inputvr[length(inputvr)]) < sqrt(10*length(input)) ? true : false
         push!(inputvr,input)
@@ -222,7 +221,6 @@ while true
 
         # top-problem without stabilization
         if !isnothing(benders_obj.stab) && benders_obj.nearOpt.cnt == 0 @suppress runTopWithoutStab!(benders_obj) end
-
 
         #create job queue
         cutVar_df = sort(cutVar_df, :diff, rev = true)
