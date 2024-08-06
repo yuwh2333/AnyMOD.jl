@@ -95,6 +95,7 @@ function computeSurrogates(benders_obj::bendersObj, surroSelect_sym::Symbol, inp
         end        
     end
     cutVar_df[!,:diff] = cutVar_df[!,:sur]  .- cutVar_df[!,:estCost] 
+    insertcols!(cutVar_df, :actCost => Vector{Union{Nothing, Float64}}(nothing, nrow(cutVar_df)))
     for row in eachrow(cutVar_df) row.diff = row.diff < -1 ? 1 : row.diff end
 
     # define maxTup
@@ -164,7 +165,7 @@ mutable struct actStatus
     last_stab_obj :: Float64
     real_benders_best_obj :: Float64
     function actStatus()
-        new(false, false, Inf, Inf)
+        new(true, false, Inf, Inf)
     end
 end
 
@@ -181,7 +182,7 @@ mutable struct SubObj
     end
 end
 
-function savePoint!(SubData, input, cutData_dic,s, benders_obj)
+function savePoint!(SubData, input, cutData_dic, s, benders_obj)
     push!(SubData.x, input)
     push!(SubData.z, cutData_dic[s].objVal)
     SubData.actItr = benders_obj.itr.cnt.i

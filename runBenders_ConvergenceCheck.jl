@@ -30,7 +30,7 @@ b = "C:/Users/23836/Desktop/git/EuSysMod/"
 # ! options for general algorithm
 
 # target gap, number of iteration after unused cut is deleted, valid inequalities, number of iterations report is written, time-limit for algorithm, distributed computing?, surrogateBenders?, number of threads, optimizer
-algSetup_obj = algSetup(gap, 20, (bal = false, st = false), 10, 120.0, true, true, t_int, Gurobi.Optimizer)
+algSetup_obj = algSetup(gap, 20, (bal = false, st = false), 10, 120.0, true, false, t_int, Gurobi.Optimizer)
 
 # ! options for stabilization
 
@@ -179,7 +179,7 @@ while true
     #    cut_group = collect(keys(benders_obj.sub))
     #end
     #record which scenario is in cut_group
-    insertcols!(cutVar_df, :actCost => Vector{Union{Nothing, Float64}}(nothing, nrow(cutVar_df)))
+   
     cutVar_df[!,:maxDiff] = map(x -> (x.Ts_dis, x.scr) in cut_group, eachrow(cutVar_df))
 
  

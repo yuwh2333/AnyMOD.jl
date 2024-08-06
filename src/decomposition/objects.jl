@@ -227,10 +227,19 @@ mutable struct bendersObj
 					end
 					push!(futData_arr,fut)
 				else
+					println("creating submodel..")
+					#=old version
 					benders_obj.sub[scr] = @async @everywhere id + 1 begin #id+1: id for the worker
 						id_int = myid() - 1 # id for the subproblem
 						sub_m = buildSub(id_int, info_ntup, inputFolder_ntup, scale_dic, algSetup_obj)
 					end
+					=#
+					fut = @spawnat id + 1 begin #id+1: id for the worker
+						global sub_model = Dict{Tuple{Int64,Int64},anyModel}()
+						sub_model[scr] = buildSub(id, info_ntup, inputFolder_ntup, scale_dic, algSetup_obj)
+						println("sub_m of sub_",scr,"on worker",id+1,"creating, actual scr:", sub_model[scr].subPro)
+					end
+					push!(futData_arr,fut)
 				end
 			else # non-distributed case
 				benders_obj.sub[scr] = buildSub(id, info_ntup, inputFolder_ntup, scale_dic, algSetup_obj)
@@ -248,11 +257,11 @@ mutable struct bendersObj
 
 		# wait for construction of sub-problems
 		if benders_obj.algOpt.dist 
-			if benders_obj.algOpt.surrogateBenders
-				wait.(futData_arr)
-			else
-				wait.(collect(values(benders_obj.sub)))
-			end
+			#if benders_obj.algOpt.surrogateBenders
+			wait.(futData_arr)
+			#else
+			#wait.(collect(values(benders_obj.sub)))
+			#end
 		end
 		
 
