@@ -134,7 +134,7 @@ end
 # overall benders structure
 mutable struct bendersObj
 	top::anyModel
-	sub::Dict{Tuple{Int,Int},Union{Future,Task,anyModel}}
+	sub::NTuple
 	cuts::Array{Pair{Tuple{Int,Int},Union{resData}},1}
 	prevCuts::Array{Pair{Tuple{Int,Int},Union{resData}},1}
 	itr::itrStatus
@@ -197,15 +197,19 @@ mutable struct bendersObj
 		# creation of sub-problems
 
 		produceMessage(report_m.options,report_m.report, 1," - Started creation of sub-problems", testErr = false, printErr = false)
-		benders_obj.sub = Dict{Tuple{Int,Int}, Union{Future, Task, anyModel}}()
+		#benders_obj.sub = Dict{Tuple{Int,Int}, Union{Future, Task, anyModel}}()
 		placeholder_task = @async begin end
 
 		# Populate benders_obj.sub with the keys from sub_tup, setting initial values to the placeholder
+		#=
 		if benders_obj.algOpt.dist
 			for s in sub_tup
     			benders_obj.sub[s] = placeholder_task
 			end
 		end
+		=#
+		benders_obj.sub = sub_tup
+		
 
 
 		#=

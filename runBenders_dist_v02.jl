@@ -60,7 +60,7 @@ nearOptSetup_obj = nothing # cost threshold to keep solution, lls threshold to k
 #region # * options for problem
 
 # ! general problem settings
-name_str =string("scr",scr_int, "_", res_int,"h_", surroSelect_sym,"_gap",gap)
+name_str =string("scr",scr_int, "_", res_int,"h_v02", surroSelect_sym,"_gap",gap)
 # name, temporal resolution, level of foresight, superordinate dispatch level, length of steps between investment years
 info_ntup = (name = name_str, frs = 0, supTsLvl = 1, shortExp = 10)
 

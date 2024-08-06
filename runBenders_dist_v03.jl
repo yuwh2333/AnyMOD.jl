@@ -60,7 +60,7 @@ nearOptSetup_obj = nothing # cost threshold to keep solution, lls threshold to k
 #region # * options for problem
 
 # ! general problem settings
-name_str =string("scr",scr_int, "_", res_int,"h_", surroSelect_sym, "_p", par_df[id_int,:p], "_gap",gap)
+name_str =string("scr",scr_int, "_", res_int,"h_v03", surroSelect_sym, "_p", par_df[id_int,:p], "_gap",gap)
 # name, temporal resolution, level of foresight, superordinate dispatch level, length of steps between investment years
 info_ntup = (name = name_str, frs = 0, supTsLvl = 1, shortExp = 10) 
 
@@ -128,7 +128,7 @@ status = actStatus()
 subData = Dict{Tuple{Int64,Int64},SubObj}()
 worker_track  = DataFrame(i = Int[], worker = Int64[], sub = Tuple{Int64,Int64}[]) #record for list of workers: which subproblem is executed on the worker
 worker_status = Dict{Int64, Bool}()
-for (id,s) in enumerate(collect(keys(benders_obj.sub))) 
+for (id,s) in enumerate(sub_tup) 
     subData[s] = SubObj() 
     worker_status[id+1] = true
 end
@@ -182,7 +182,7 @@ while true
 
     if status.check_Conv == false
         while result_found == false
-            for (id,s) in enumerate(collect(keys(benders_obj.sub)))
+            for (id,s) in enumerate(sub_tup)
                 if worker_status[id+1] == true 
                     if benders_obj.itr.cnt.i == 2 || (L2NormDict(inputvr[subData[s].actItr],input) > 0.0001 * L1NormDict(input)) 
                         futworkers[id+1] = runSubDist(id + 1, s, copy(resData_obj), :barrier, 1e-8)
@@ -192,17 +192,19 @@ while true
             end
 
             #get results of subproblems       
-            for (id,s) in enumerate(collect(keys(benders_obj.sub)))
-                if isready(futworkers[id+1])
-                    cutData_dic[s], timeSub_dic[s], lss_dic[s],~ = fetch(futworkers[id+1])
+            for worker_id in keys(futworkers)
+                if isready(futworkers[worker_id])
+                    results = fetch(futworkers[worker_id])
+                    s = results[4]
+                    cutData_dic[s], timeSub_dic[s], lss_dic[s] = results[1], results[2], results[3]
                     cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :actCost] .= cutData_dic[s].objVal
                     cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :timeSub] .= timeSub_dic[s]
                     cutVar_df[!,:maxDiff] = map(x -> (x.Ts_dis, x.scr) == s, eachrow(cutVar_df))
                     savePoint!(subData[s], input, cutData_dic, s, benders_obj)                    
-                    delete!(futworkers, id+1)
-                    worker_status[id+1] = true
+                    delete!(futworkers, worker_id)
+                    worker_status[worker_id] = true
                     result_found = true
-                    for (id,scr) in enumerate(collect(keys(benders_obj.sub)))
+                    for (id_scr,scr) in enumerate(sub_tup)
                         if scr!=s
                             cutData_dic[scr] = resData()
                             cutData_dic[scr].objVal = cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :sur][1]                           
@@ -225,13 +227,13 @@ while true
             end
         end
         #assign each worker a new job
-        for (id,s) in enumerate(collect(keys(benders_obj.sub)))
+        for (id,s) in enumerate(sub_tup)
             futworkers[id+1] = runSubDist(id + 1, s, copy(resData_obj), :barrier, 1e-8)
             worker_status[id+1] = false
         end
         #fetch results
         wait.(collect(values(futworkers)))
-		for (id,s) in enumerate(collect(keys(benders_obj.sub)))
+		for (id,s) in enumerate(sub_tup)
 			cutData_dic[s], timeSub_dic[s], lss_dic[s],~ = fetch(futworkers[id+1])
             cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :actCost] .= cutData_dic[s].objVal
             cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :timeSub] .= timeSub_dic[s]

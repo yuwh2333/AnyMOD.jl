@@ -1,6 +1,6 @@
 using Gurobi, AnyMOD, CSV, YAML, SlurmClusterManager, InteractiveUtils
 
-include("./IDW.jl")
+
 include("./functions.jl")
 
 
@@ -30,7 +30,7 @@ b = "C:/Users/23836/Desktop/git/EuSysMod/"
 # ! options for general algorithm
 
 # target gap, number of iteration after unused cut is deleted, valid inequalities, number of iterations report is written, time-limit for algorithm, distributed computing?, surrogateBenders?, number of threads, optimizer
-algSetup_obj = algSetup(gap, 20, (bal = false, st = false), 10, 120.0, true, true, t_int, Gurobi.Optimizer)
+algSetup_obj = algSetup(gap, 20, (bal = false, st = false), 10, 120.0, true, false, t_int, Gurobi.Optimizer)
 
 # ! options for stabilization
 
@@ -60,9 +60,9 @@ nearOptSetup_obj = nothing # cost threshold to keep solution, lls threshold to k
 #region # * options for problem
 
 # ! general problem settings
-name_str =string("scr",scr_int, "_", res_int,"h_", surroSelect_sym,"_gap",gap)
+name_str =string("scr",scr_int, "_", res_int,"h_", surroSelect_sym, "_p", par_df[id_int,:p], "_gap",gap)
 # name, temporal resolution, level of foresight, superordinate dispatch level, length of steps between investment years
-info_ntup = (name = name_str, frs = 0, supTsLvl = 1, shortExp = 10)
+info_ntup = (name = name_str, frs = 0, supTsLvl = 1, shortExp = 10) 
 
 # ! input folders
 dir_str = b
@@ -94,6 +94,7 @@ scale_dic[:facSub] = (capa = 1e0, capaStSize = 1e2, insCapa = 1e0, dispConv = 1e
 
 #region # * prepare iteration
 wrkCnt = scr_int #（equal to number of scenarios)
+
 # initialize distributed computing
 if algSetup_obj.dist 
     #addprocs(SlurmManager(; launch_timeout = 300), exeflags="--heap-size-hint=30G", nodes=1, ntasks=1, ntasks_per_node=1, cpus_per_task=4, mem_per_cpu="8G", time=4380) # add all available nodes
@@ -105,11 +106,15 @@ if algSetup_obj.dist
 		runSubDist(w_int::Int64, s::Tuple{Int64,Int64}, resData_obj::resData, sol_sym::Symbol, optTol_fl::Float64=1e-8, crsOver_boo::Bool=false, wrtRes_boo::Bool=false) = Distributed.@spawnat w_int runSub(s, resData_obj, sol_sym, optTol_fl, crsOver_boo, wrtRes_boo)
 	end
 	passobj(1, workers(), [:info_ntup, :inputFolder_ntup, :scale_dic, :algSetup_obj])
+
+else
+	runSubDist = x -> nothing
 end
 
 
 # create benders object
 benders_obj = bendersObj(info_ntup, inputFolder_ntup, scale_dic, algSetup_obj, stabSetup_obj, runSubDist, nearOptSetup_obj);
+
 
 #endregion
 
