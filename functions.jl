@@ -164,8 +164,10 @@ mutable struct actStatus
     rtn_boo :: Bool
     last_stab_obj :: Float64
     real_benders_best_obj :: Float64
+    fake_benders_best_obj :: Float64
+    futworkers_dic :: Dict{Int64, Future}
     function actStatus()
-        new(true, false, Inf, Inf)
+        new(true, false, Inf, Inf, Inf, Dict())
     end
 end
 
