@@ -627,7 +627,7 @@ function updateIteration!(benders_obj::bendersObj, cutData_dic::Dict{Tuple{Int64
 	best_obj = itr_obj.best
 
 	# store information for cuts
-	benders_obj.cuts = collect(cutData_dic)
+	#benders_obj.cuts = collect(cutData_dic)
 
 	# get sub-results
 	itr_obj.res[:actSubCost] = sum(map(x -> x.objVal, values(cutData_dic))) # objective of sub-problems

@@ -1,3 +1,4 @@
+#include("./src/decomposition/objects.jl")
 function computeIDW(x_train::Vector{Dict}, y_train::Vector{Float64}, x::Dict, par::Int64)
     w = zeros(length(x_train))
     u_up = 0.0
@@ -96,13 +97,19 @@ function computeSurrogates(benders_obj::bendersObj, surroSelect_sym::Symbol, inp
     end
     cutVar_df[!,:diff] = cutVar_df[!,:sur]  .- cutVar_df[!,:estCost] 
     insertcols!(cutVar_df, :actCost => Vector{Union{Nothing, Float64}}(nothing, nrow(cutVar_df)))
-    for row in eachrow(cutVar_df) row.diff = row.diff < -1 ? 1 : row.diff end
+    surroNeg_boo = false
+    for row in eachrow(cutVar_df) 
+        if row.diff <-1 
+            row.diff = 1
+            surroNeg_boo = true
+        end
+    end 
 
     # define maxTup
     sMaxDiff_tup = tuple((cutVar_df[findall(maximum(cutVar_df[!,:diff]) .== cutVar_df[!,:diff]), :] |> (z -> map(x -> z[1,x], [:Ts_dis, :scr])))...)
     
     
-    return sMaxDiff_tup, cutVar_df
+    return sMaxDiff_tup, cutVar_df, surroNeg_boo
 end
 
 function resDatatoDict(resData_obj::resData)
@@ -159,6 +166,7 @@ function saveDual(cutData_dic, cut_group, resData_obj, benders_obj, dualvr)
     end
 end
 
+
 mutable struct actStatus
     check_Conv :: Bool
     rtn_boo :: Bool
@@ -166,20 +174,26 @@ mutable struct actStatus
     real_benders_best_obj :: Float64
     fake_benders_best_obj :: Float64
     futworkers_dic :: Dict{Int64, Future}
+    cutData_dic :: Dict{Tuple{Int64,Int64},resData}
+	timeSub_dic :: Dict{Tuple{Int64,Int64},Millisecond}
+	lss_dic :: Dict{Tuple{Int64,Int64},Float64}
+    cutGroup :: Vector{Tuple{Int64,Int64}}
     function actStatus()
-        new(true, false, Inf, Inf, Inf, Dict())
+        new(true, false, Inf, Inf, Inf, Dict(),Dict(),Dict(),Dict(),[])
     end
 end
 
 mutable struct SubObj
     x:: Vector{Dict}
     z:: Vector{Float64}
-    actItr:: Int64
+    actItr:: Int64 #last iteration number when a result is fetched
+    strItr:: Int64 #last iteration number when a SP started
     function SubObj()
         sub_obj = new()
         sub_obj.x = Vector{Dict}()
         sub_obj.z = Vector{Float64}()
         sub_obj.actItr = 0
+        sub_obj.strItr = 0
         return sub_obj
     end
 end
