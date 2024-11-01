@@ -21,7 +21,7 @@ res_int = par_df[id_int,:h] # number of hours
 gap = 0.001
 
 
-b = "C:/Users/23836/Desktop/git/EuSysMod/"
+b = ""
 
 #region # * options for algorithm
 
@@ -146,13 +146,13 @@ while true
         status.check_Conv = true
     else
         status.check_Conv = length(inputvr)>1 && (L2NormDict(input,inputvr[length(inputvr)]) < sqrt(10*length(input)) || benders_obj.itr.gap < gap) ? true : false
+        #status.check_Conv = length(inputvr)>1 && benders_obj.itr.gap < (gap+0.1*gap) ? true : false
     end
     push!(inputvr,input)
    
     #compute surrogates and save the result in cutVar_df
     sMaxDiff_tup, cutVar_df, ~ = computeSurrogates(benders_obj, surroSelect_sym, input, par_df, subData)
 
-    if !isnothing(benders_obj.stab) && benders_obj.nearOpt.cnt == 0 @suppress runTopWithoutStab!(benders_obj) end
     
     #end region#
     ###############################
@@ -167,15 +167,13 @@ while true
 
     if status.check_Conv == true || benders_obj.itr.cnt.i<=3
         #assign jobs
-        job_queue = collect(sub_tup)
-        while !isempty(job_queue)
-            for (id,s) in enumerate(sub_tup) #iterate over all the workers
-                status.futworkers_dic[id+1] = runSubDist(id + 1, s, copy(resData_obj), :barrier, 1e-8)
-                append!(trackTime_df, DataFrame(i = benders_obj.itr.cnt.i, worker_id = id+1, type = :str, time = now()))
-                filter!(x -> x != s, job_queue)
-                subData[s].strItr = benders_obj.itr.cnt.i
+        for (id,s) in enumerate(sub_tup) #iterate over all the workers
+            status.futworkers_dic[id+1] = runSubDist(id + 1, s, copy(resData_obj), :barrier, 1e-8)
+            append!(trackTime_df, DataFrame(i = benders_obj.itr.cnt.i, worker_id = id+1, type = :str, time = now()))
+            subData[s].strItr = benders_obj.itr.cnt.i
             end
         end
+
         #fetch results
         wait.(collect(values(status.futworkers_dic)))
         for (id,s) in enumerate(sub_tup)
@@ -188,8 +186,8 @@ while true
             worker_status[id+1] = true
         end  
     else
-        if isempty(status.futworkers_dic)
-            for (id,s) in enumerate(sub_tup) #iterate over all the workers
+        for (id,s) in enumerate(sub_tup) #iterate over all the workers
+            if !haskey(status.futworkers_dic,id+1)
                 status.futworkers_dic[id+1] = runSubDist(id + 1, s, copy(resData_obj), :barrier, 1e-8)
                 append!(trackTime_df, DataFrame(i = benders_obj.itr.cnt.i, worker_id = id+1, type = :str, time = now()))
                 subData[s].strItr = benders_obj.itr.cnt.i
@@ -211,34 +209,43 @@ while true
                         delete!(status.futworkers_dic, id+1)
                         result_found = true
                         #start new job on the worker
-                        status.futworkers_dic[id+1] = runSubDist(id + 1, s, copy(resData_obj), :barrier, 1e-8)
-                        append!(trackTime_df, DataFrame(i = benders_obj.itr.cnt.i, worker_id = id+1, type = :str, time = now()))
-                        subData[s].strItr = benders_obj.itr.cnt.i
+                        #=
+                        if subData[s].strItr < benders_obj.itr.cnt.i
+                            status.futworkers_dic[id+1] = runSubDist(id + 1, s, copy(resData_obj), :barrier, 1e-8)
+                            append!(trackTime_df, DataFrame(i = benders_obj.itr.cnt.i, worker_id = id+1, type = :str, time = now()))
+                            subData[s].strItr = benders_obj.itr.cnt.i
+                        end
+                        =#
                     end
                 end
             end
         end
+        benders_obj.cuts = collect(cutData_dic)
         for (id_scr,scr) in enumerate(sub_tup)
             if !(scr in cut_group)
                 cutData_dic[scr] = resData()
-            end
+            #end
             cutData_dic[scr].objVal = max(computeNN(subData[scr].x, subData[scr].z, input), cutVar_df[(cutVar_df[!,:Ts_dis].== scr[1]) .& (cutVar_df[!,:scr] .== scr[2]), :estCost][1])                          
+            end
         end
     end
     println(cut_group)
     println(status.check_Conv)
     #top-problem without stabilization
+    if !isnothing(benders_obj.stab) && benders_obj.nearOpt.cnt == 0 @suppress runTopWithoutStab!(benders_obj) end
     
     if status.check_Conv == true && benders_obj.itr.cnt.i>3
         benders_obj.stab.objVal = status.last_stab_obj #last_stab_obj is Inf
         benders_obj.itr.best.objVal = status.real_benders_best_obj
     end
     
+    
     # update results and stabilization
 	updateIteration!(benders_obj, cutData_dic, stabVar_obj)
 
     #Use real information for convergence check
     if status.check_Conv == true || benders_obj.itr.cnt.i<=3
+        benders_obj.cuts = collect(cutData_dic)
         status.real_benders_best_obj = benders_obj.itr.best.objVal
         #status.last_stab_obj = benders_obj.stab.objVal
         status.rtn_boo = checkConvergence(benders_obj, lss_dic)

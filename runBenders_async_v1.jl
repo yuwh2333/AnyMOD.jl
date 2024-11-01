@@ -1,11 +1,14 @@
-using Gurobi, AnyMOD, CSV, YAML, SlurmClusterManager, InteractiveUtils
+using Gurobi, AnyMOD, CSV, YAML, SlurmClusterManager, InteractiveUtils, Distributed
+using Base.Threads
 
+# Condition for task completion notification
+cond = Condition()
 
 include("./functions.jl")
 
 
 # read-in of input options
-par_df = CSV.read("settings_surro.csv",DataFrame)
+par_df = CSV.read("settings_surro_v4.csv",DataFrame)
 
 if isempty(ARGS)
     id_int = 1
@@ -21,7 +24,7 @@ res_int = par_df[id_int,:h] # number of hours
 gap = 0.001
 
 
-b = "C:/Users/23836/Desktop/git/EuSysMod/"
+b = ""
 
 #region # * options for algorithm
 
@@ -58,7 +61,7 @@ nearOptSetup_obj = nothing # cost threshold to keep solution, lls threshold to k
 #region # * options for problem
 
 # ! general problem settings
-name_str =string("scr",scr_int, "_", res_int,"h_v03", surroSelect_sym, "_p", par_df[id_int,:p], "_gap",gap)
+name_str =string("scr",scr_int, "_", res_int,"h_v04", surroSelect_sym, "_p", par_df[id_int,:p], "_gap",gap)
 # name, temporal resolution, level of foresight, superordinate dispatch level, length of steps between investment years
 info_ntup = (name = name_str, frs = 0, supTsLvl = 1, shortExp = 10) 
 
@@ -95,6 +98,7 @@ if algSetup_obj.dist
     #addprocs(SlurmManager(; launch_timeout = 300), exeflags="--heap-size-hint=30G", nodes=1, ntasks=1, ntasks_per_node=1, cpus_per_task=4, mem_per_cpu="8G", time=4380) # add all available nodes
 	#rmprocs(wrkCnt + 2) # remove one node again for main process
 	addprocs(scr_int) 
+    @everywhere using SharedArrays
     rmprocs(wrkCnt + 2)
 	@suppress @everywhere begin 
 		using AnyMOD, Gurobi
@@ -114,17 +118,17 @@ benders_obj = bendersObj(info_ntup, inputFolder_ntup, scale_dic, algSetup_obj, s
 #region # * iteration algorithm
 # dataframe to track approximation of sub-problems
 trackSub_df = DataFrame(i = Int[], Ts_dis = Int[], scr = Int[], actCost = Union{Nothing, Float64}[], estCost = Float64[], diff = Float64[], timeSub = Millisecond[], maxDiff = Bool[], sur = Float64[])
-inputvr = Vector{Dict{Symbol, Float64}}()
+inputvr = Vector{Dict{Symbol, Float64}}() #collection of expansion variables
 push!(inputvr,Dict())
 status = actStatus()
 subData = Dict{Tuple{Int64,Int64},SubObj}()
-worker_status = Dict{Int64, Bool}()
+worker_status = Dict{Int64, Bool}() #can be deleted
 for (id,s) in enumerate(sub_tup) 
     subData[s] = SubObj() 
+    worker_status[id+1] = true #can be deleted
 end
 trackTime_df = DataFrame(i= Int[], worker_id = Int[], type = Symbol[], time = [])
 status.futworkers_dic = Dict{Int, Future}()
-
 while true
 
 	produceMessage(benders_obj.report.mod.options, benders_obj.report.mod.report, 1, " - Started iteration $(benders_obj.itr.cnt.i)", testErr = false, printErr = false)
@@ -140,24 +144,39 @@ while true
     if surroSelect_sym == :dist
         status.check_Conv = true
     else
-        status.check_Conv = length(inputvr)>1 && (L2NormDict(input,inputvr[length(inputvr)]) < sqrt(10*length(input)) ||benders_obj.itr.gap < gap ) ? true : false
-        #status.check_Conv = length(inputvr)>1 && benders_obj.itr.gap < gap  ? true : false
+        status.check_Conv = length(inputvr)>1 && (L2NormDict(input,inputvr[length(inputvr)]) < sqrt(10*length(input)) || benders_obj.itr.gap < gap ) ? true : false
     end
     push!(inputvr,input)
    
     #compute surrogates and save the result in cutVar_df
-    sMaxDiff_tup, cutVar_df, ~ = computeSurrogates(benders_obj, surroSelect_sym, input, par_df, subData)
+    sMaxDiff_tup, cutVar_df = computeSurrogates(benders_obj, surroSelect_sym, input, par_df, subData)
     #end region#
-    ###############################
-  
+    ################################### 
     #region# *start solving sub-problems
-	#cutData_dic = Dict{Tuple{Int64,Int64},resData}()
-	#timeSub_dic = Dict{Tuple{Int64,Int64},Millisecond}()
-	#lss_dic = Dict{Tuple{Int64,Int64},Float64}()
-
-    
 
     if status.check_Conv == true || benders_obj.itr.cnt.i<=3
+
+        #ToDo: when convergence check is required, how to assign the jobs as soon as the worker is availabe
+        #failed
+        #= 
+        job_queue = collect(sub_tup)
+        println(job_queue)
+        while !isempty(job_queue)
+            for (id,s) in enumerate(sub_tup) #iterate over all the workers
+                if !haskey(status.futworkers_dic, id+1) 
+                    status.futworkers_dic[id+1] = runSubDist(id+1, s, copy(resData_obj), :barrier, 1e-8)
+                    append!(trackTime_df, DataFrame(i = benders_obj.itr.cnt.i, worker_id = id+1, type = :scr, time = now()))
+                    subData[s].strItr = benders_obj.itr.cnt.i
+                    filter!(x -> x != s, job_queue)
+                    println(job_queue)
+                end
+            end
+        end
+        =#
+       
+        
+        wait.(collect(values(status.futworkers_dic)))
+        sleep(0.04)
         #assign jobs
         for (id,s) in enumerate(sub_tup) #iterate over all the workers
             status.futworkers_dic[id+1] = runSubDist(id + 1, s, copy(resData_obj), :barrier, 1e-8)
@@ -165,34 +184,31 @@ while true
             subData[s].strItr = benders_obj.itr.cnt.i
         end
         
+
         #fetch results
         wait.(collect(values(status.futworkers_dic)))
         for (id,s) in enumerate(sub_tup)
             status.cutData_dic[s], status.timeSub_dic[s], status.lss_dic[s],~ = fetch(status.futworkers_dic[id+1])
             cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :actCost] .= status.cutData_dic[s].objVal
             cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :timeSub] .= status.timeSub_dic[s]
-            savePoint!(subData[s], inputvr[subData[s].strItr], status.cutData_dic, s, benders_obj)    
-            push!(status.cutGroup, s)                
+            savePoint!(subData[s], inputvr[subData[s].strItr], status.cutData_dic, s, benders_obj)                   
             append!(trackTime_df, DataFrame(i = benders_obj.itr.cnt.i, worker_id = id+1, type = :res, time = now()))
-
             delete!(status.futworkers_dic, id+1)
-            worker_status[id+1] = true
         end  
     else
-        if isempty(status.futworkers_dic)
-            for (id,s) in enumerate(sub_tup) #iterate over all the workers
-                status.futworkers_dic[id+1] = runSubDist(id + 1, s, copy(resData_obj), :barrier, 1e-8)
+        #currentgroup = Vector{Int}()
+        #assign jobs
+        for (id,scr) in enumerate(sub_tup)
+            if !haskey(status.futworkers_dic, id+1) #if the worker id+1 is free
+                status.futworkers_dic[id+1] = runSubDist(id + 1, scr, copy(resData_obj), :barrier, 1e-8)
                 append!(trackTime_df, DataFrame(i = benders_obj.itr.cnt.i, worker_id = id+1, type = :str, time = now()))
-                subData[s].strItr = benders_obj.itr.cnt.i
+                subData[scr].strItr = benders_obj.itr.cnt.i
+                #push!(currentgroup, id+1)
             end
         end
-        #get results of subproblems       
-        for s in collect(keys(status.cutData_dic))
-            push!(status.cutGroup,s)
-        end
-
+        
         for (id,scr) in enumerate(sub_tup)
-            if haskey(status.futworkers_dic, id+1) & !haskey(status.cutData_dic, scr) #job is created and result is not fetched
+            if haskey(status.futworkers_dic, id+1) #&& id+1 in currentgroup
                 @async begin
                     wait(status.futworkers_dic[id+1])
                     results = fetch(status.futworkers_dic[id+1])
@@ -202,43 +218,31 @@ while true
                     cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :actCost] .= status.cutData_dic[s].objVal
                     cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :timeSub] .= status.timeSub_dic[s]
                     append!(trackTime_df, DataFrame(i = benders_obj.itr.cnt.i, worker_id = id+1, type = :res, time = now()))
-                    savePoint!(subData[s], inputvr[subData[s].strItr], status.cutData_dic, s, benders_obj)   
-                    push!(status.cutGroup, s)                 
+                    savePoint!(subData[s], inputvr[subData[s].strItr], status.cutData_dic, s, benders_obj)                    
                     delete!(status.futworkers_dic, id+1)
-
-                    #start new job on the worker
-                    if subData[s].strItr < benders_obj.itr.cnt.i
-                        status.futworkers_dic[id+1] = runSubDist(id + 1, s, copy(resData_obj), :barrier, 1e-8)
-                        append!(trackTime_df, DataFrame(i = benders_obj.itr.cnt.i, worker_id = id+1, type = :str, time = now()))
-                        subData[s].strItr = benders_obj.itr.cnt.i
-                    end
-                    
+                    worker_status[id+1] = true
+                    #two options for notification
+                    #notify(cond)
+                    if s == sMaxDiff_tup notify(cond) end
+     
                 end
-            else 
-                if !haskey(status.futworkers_dic, id+1) && subData[scr].strItr < benders_obj.itr.cnt.i
-                    status.futworkers_dic[id+1] = runSubDist(id + 1, s, copy(resData_obj), :barrier, 1e-8)
-                    append!(trackTime_df, DataFrame(i = benders_obj.itr.cnt.i, worker_id = id+1, type = :str, time = now()))
-                    subData[s].strItr = benders_obj.itr.cnt.i
-                end   
             end
         end
+       
+        wait(cond)       
         
-        while isempty(status.cutData_dic) || isempty(status.timeSub_dic) || isempty(status.lss_dic)
-            sleep(0.01)
-        end
-        
-        #wait(status.futworkers_dic[findfirst(x->x==sMaxDiff_tup,sub_tup)])
     end
-    
+    benders_obj.cuts = collect(status.cutData_dic)
     currentcutGroup = collect(keys(status.lss_dic))
-    #currentcutGroup = status.cutGroup
-    println(currentcutGroup)
-    if Set(currentcutGroup) != Set(sub_tup)
+    println("currentcutGroup:", currentcutGroup)
+    if status.check_Conv == false && benders_obj.itr.cnt.i>3
         for (id,s) in enumerate(sub_tup)
             if !haskey(status.cutData_dic,s)
                 status.cutData_dic[s] = resData()
-            end
+                #ToDo: use the surrogate estimator rather than the operational cost from previous iterations to compute the result. 
+                #Have problem generating the cuts
             status.cutData_dic[s].objVal = max(computeNN(subData[s].x, subData[s].z, input), cutVar_df[(cutVar_df[!,:Ts_dis].== s[1]) .& (cutVar_df[!,:scr] .== s[2]), :estCost][1])                          
+            end
         end
     end
    
@@ -247,12 +251,12 @@ while true
     if !isnothing(benders_obj.stab) && benders_obj.nearOpt.cnt == 0 @suppress runTopWithoutStab!(benders_obj) end
     
     if status.check_Conv == true && benders_obj.itr.cnt.i>=3
+        benders_obj.cuts = collect(status.cutData_dic)
         benders_obj.stab.objVal = status.last_stab_obj
         benders_obj.itr.best.objVal = status.real_benders_best_obj
     end
 
 
-    
     # update results and stabilization
 	updateIteration!(benders_obj, status.cutData_dic, stabVar_obj) #generate cuts, update stability center 
 
@@ -274,17 +278,18 @@ while true
     
     benders_obj.itr.cnt.i = benders_obj.itr.cnt.i + 1
     #if status.check_Conv == false && benders_obj.itr.cnt.i>3
-    println(benders_obj.itr.cnt.i,":",currentcutGroup)
     println(status.check_Conv)
     filter!(x -> x[1] in currentcutGroup, benders_obj.cuts)
 
     #end
-    filter!(x -> ! (x in currentcutGroup), status.cutGroup)
-    println(status.cutGroup)
-    filter!(x -> ! (x[1] in currentcutGroup), status.cutData_dic)
+    
+    
+
     filter!(x -> ! (x[1] in currentcutGroup), status.timeSub_dic)
     filter!(x -> ! (x[1] in currentcutGroup), status.lss_dic)
-
+    filter!(kv -> haskey(status.lss_dic, kv[1]), status.cutData_dic)
+    #println("cutData:", keys(status.cutData_dic))
+    #println("lss_dic:", keys(status.lss_dic))
     #report trackSub_df
     # Define a transformation function to replace `nothing` with a placeholder
     transform_nothing = (col, val) -> val === nothing ? "NA" : val

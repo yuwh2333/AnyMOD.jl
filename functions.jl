@@ -97,11 +97,9 @@ function computeSurrogates(benders_obj::bendersObj, surroSelect_sym::Symbol, inp
     end
     cutVar_df[!,:diff] = cutVar_df[!,:sur]  .- cutVar_df[!,:estCost] 
     insertcols!(cutVar_df, :actCost => Vector{Union{Nothing, Float64}}(nothing, nrow(cutVar_df)))
-    surroNeg_boo = false
     for row in eachrow(cutVar_df) 
         if row.diff <-1 
             row.diff = 1
-            surroNeg_boo = true
         end
     end 
 
@@ -109,7 +107,7 @@ function computeSurrogates(benders_obj::bendersObj, surroSelect_sym::Symbol, inp
     sMaxDiff_tup = tuple((cutVar_df[findall(maximum(cutVar_df[!,:diff]) .== cutVar_df[!,:diff]), :] |> (z -> map(x -> z[1,x], [:Ts_dis, :scr])))...)
     
     
-    return sMaxDiff_tup, cutVar_df, surroNeg_boo
+    return sMaxDiff_tup, cutVar_df
 end
 
 function resDatatoDict(resData_obj::resData)
